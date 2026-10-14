@@ -13,7 +13,7 @@ ApplicationWindow {
     title: qsTr("Hello Denis")
     property bool lightMode: Application.styleHints.colorScheme === Qt.Light
     property color reallyDark: "#1f1f1f"
-    property color dark: "#262626"
+    property color dark: "#464646"
     property color reallyLight: "#e7e7e7"
     property color light: "#e0e0e0"
 
