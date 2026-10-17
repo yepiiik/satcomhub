@@ -46,6 +46,54 @@ ApplicationWindow {
         id: propagator
     }
 
+    property string currentUtcString: propagator.currentUtcIsoString()
+    property int liveTickCounter: 0
+
+    Timer {
+        id: liveSatTimer
+        interval: 1000
+        running: true
+        repeat: true
+        onTriggered: {
+            window.currentUtcString = propagator.currentUtcIsoString()
+            window.liveTickCounter++
+            var shouldRefreshTrack = (window.liveTickCounter % 30 === 0)
+            window.updateLiveSatellitePositions(shouldRefreshTrack)
+        }
+    }
+
+    function updateLiveSatellitePositions(refreshTrack) {
+        if (!satellitesModel || satellitesModel.count === 0) return
+
+        for (var i = 0; i < satellitesModel.count; i++) {
+            var sat = satellitesModel.get(i)
+            if (!sat.tle1 || !sat.tle2) continue
+
+            var prop = propagator.propagateTle(sat.tle1, sat.tle2, 0.0)
+            if (prop.valid) {
+                satellitesModel.setProperty(i, "latitude", prop.latitude)
+                satellitesModel.setProperty(i, "longitude", prop.longitude)
+                satellitesModel.setProperty(i, "altitudeKm", prop.altitudeKm)
+                satellitesModel.setProperty(i, "visibilityRadiusMeters", prop.visibilityRadiusMeters)
+                if (prop.velocityKmS !== undefined) {
+                    satellitesModel.setProperty(i, "velocityKmS", prop.velocityKmS)
+                }
+
+                if (refreshTrack) {
+                    var tracks = propagator.computeOrbitTracks(sat.tle1, sat.tle2, 0.75)
+                    satellitesModel.setProperty(i, "trajectory", tracks.current || [])
+                    satellitesModel.setProperty(i, "prevTrajectory", tracks.previous || [])
+                    satellitesModel.setProperty(i, "nextTrajectory", tracks.next || [])
+                }
+
+                if (window.selectedSatelliteId === sat.satId) {
+                    window.currentSatAltKm = prop.altitudeKm
+                }
+            }
+        }
+        mapComponent.requestCanvasRedraw()
+    }
+
     ListModel {
         id: stationsModel
     }
@@ -193,6 +241,33 @@ ApplicationWindow {
                         text: qsTr("Satellite & Ground Station Monitor")
                         font.pixelSize: 13
                         color: window.lightMode ? window.subTextLight : window.subTextDark
+                    }
+
+                    // Live Status & UTC Clock
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: "#40c057"
+                            SequentialAnimation on opacity {
+                                loops: Animation.Infinite
+                                NumberAnimation { from: 1.0; to: 0.3; duration: 800; easing.type: Easing.InOutQuad }
+                                NumberAnimation { from: 0.3; to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
+                            }
+                        }
+
+                        Label {
+                            text: window.currentUtcString
+                            font.pixelSize: 11
+                            font.bold: true
+                            font.family: "monospace"
+                            color: window.lightMode ? "#2b8a3e" : "#51cf66"
+                            Layout.fillWidth: true
+                        }
                     }
 
                     Rectangle {
@@ -353,13 +428,13 @@ ApplicationWindow {
                             }
 
                             Button {
-                                text: qsTr("Paste Sample (ISS)")
+                                text: qsTr("Paste Live Sample (ISS)")
                                 Layout.fillWidth: true
                                 height: 30
                                 onClicked: {
                                     satNameInput.text = "ISS (ZARYA)"
-                                    tle1Input.text = "1 25544U 98067A   24080.52989120  .00015421  00000+0  27592-3 0  9993"
-                                    tle2Input.text = "2 25544  51.6416 204.8190 0004526  51.5262  57.8182 15.49887764444585"
+                                    tle1Input.text = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
+                                    tle2Input.text = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665"
                                 }
                             }
 
@@ -391,7 +466,7 @@ ApplicationWindow {
 
                                     var prop = propagator.propagateTle(l1, l2, 0.0)
                                     if (prop.valid) {
-                                        var track = propagator.computeGroundTrack(l1, l2, 96, 2)
+                                        var tracks = propagator.computeOrbitTracks(l1, l2, 0.75)
 
                                         if (window.editingSatId !== "") {
                                             // Update existing satellite
@@ -404,7 +479,10 @@ ApplicationWindow {
                                                     satellitesModel.setProperty(s, "longitude", prop.longitude)
                                                     satellitesModel.setProperty(s, "altitudeKm", prop.altitudeKm)
                                                     satellitesModel.setProperty(s, "visibilityRadiusMeters", prop.visibilityRadiusMeters)
-                                                    satellitesModel.setProperty(s, "trajectory", track)
+                                                    satellitesModel.setProperty(s, "velocityKmS", prop.velocityKmS || 0)
+                                                    satellitesModel.setProperty(s, "trajectory", tracks.current || [])
+                                                    satellitesModel.setProperty(s, "prevTrajectory", tracks.previous || [])
+                                                    satellitesModel.setProperty(s, "nextTrajectory", tracks.next || [])
                                                     break
                                                 }
                                             }
@@ -421,7 +499,10 @@ ApplicationWindow {
                                                 longitude: prop.longitude,
                                                 altitudeKm: prop.altitudeKm,
                                                 visibilityRadiusMeters: prop.visibilityRadiusMeters,
-                                                trajectory: track
+                                                velocityKmS: prop.velocityKmS || 0,
+                                                trajectory: tracks.current || [],
+                                                prevTrajectory: tracks.previous || [],
+                                                nextTrajectory: tracks.next || []
                                             })
                                             window.selectSatellite(satId, prop.latitude, prop.longitude, prop.altitudeKm, name)
                                         }
@@ -793,8 +874,20 @@ ApplicationWindow {
                                 }
 
                                 Label {
-                                    text: "Alt: " + Math.round(model.altitudeKm) + " km • Range: " + Math.round(model.visibilityRadiusMeters / 1000) + " km"
+                                    property string latDir: model.latitude >= 0 ? "°N" : "°S"
+                                    property string lonDir: model.longitude >= 0 ? "°E" : "°W"
+                                    text: Math.abs(model.latitude).toFixed(2) + latDir + ", " + Math.abs(model.longitude).toFixed(2) + lonDir
                                     font.pixelSize: 11
+                                    font.bold: true
+                                    font.family: "monospace"
+                                    color: isSelected ? window.satColor : (window.lightMode ? "#1971c2" : "#4dabf7")
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+
+                                Label {
+                                    text: "Alt: " + Math.round(model.altitudeKm) + " km • Range: " + Math.round(model.visibilityRadiusMeters / 1000) + " km" + (model.velocityKmS ? " • " + model.velocityKmS.toFixed(2) + " km/s" : "")
+                                    font.pixelSize: 10
                                     color: window.lightMode ? window.subTextLight : window.subTextDark
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
@@ -1020,12 +1113,12 @@ ApplicationWindow {
             { stationId: "GS-04", name: "Wroclaw West Link", latitude: 51.1079, longitude: 17.0385, altitude: 175.0, minElevation: 5.0 }
         ])
 
-        // Initial Sample Satellite (ISS)
-        var issL1 = "1 25544U 98067A   24080.52989120  .00015421  00000+0  27592-3 0  9993"
-        var issL2 = "2 25544  51.6416 204.8190 0004526  51.5262  57.8182 15.49887764444585"
+        // Initial Sample Satellite (ISS) - Live NORAD TLE Elements
+        var issL1 = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
+        var issL2 = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665"
         var prop = propagator.propagateTle(issL1, issL2, 0.0)
         if (prop.valid) {
-            var track = propagator.computeGroundTrack(issL1, issL2, 96, 2)
+            var tracks = propagator.computeOrbitTracks(issL1, issL2, 0.75)
             satellitesModel.append({
                 satId: "SAT-01",
                 name: "ISS (ZARYA)",
@@ -1035,11 +1128,15 @@ ApplicationWindow {
                 longitude: prop.longitude,
                 altitudeKm: prop.altitudeKm,
                 visibilityRadiusMeters: prop.visibilityRadiusMeters,
-                trajectory: track
+                velocityKmS: prop.velocityKmS || 0,
+                trajectory: tracks.current || [],
+                prevTrajectory: tracks.previous || [],
+                nextTrajectory: tracks.next || []
             })
             window.currentSatAltKm = prop.altitudeKm
             window.currentSatName = "ISS (ZARYA)"
             window.selectedSatelliteId = "SAT-01"
+            mapComponent.focusOnCoordinate(prop.latitude, prop.longitude)
         }
     }
 }

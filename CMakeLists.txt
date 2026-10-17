@@ -13,6 +13,8 @@ find_package(Qt6 REQUIRED
 
 qt_standard_project_setup(REQUIRES 6.8)
 
+add_subdirectory(third_party/libsgp4)
+
 if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/importedcontent/CMakeLists.txt")
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/importedcontent)
 endif()
@@ -36,9 +38,16 @@ qt_add_qml_module(appsatcomhub
         qml/views/Main.qml
         qml/components/MapComponent.qml
         qml/components/StationMarker.qml
+        qml/components/SatelliteMarker.qml
+        qml/components/DraftStationMarker.qml
+        qml/components/MercatorMapView.qml
+        qml/components/EquirectangularMapView.qml
+        qml/components/MapControlsOverlay.qml
+        qml/components/MapUtils.js
     RESOURCES
         resources/marker.svg
         resources/earth_equirectangular.jpg
+        README.md
 )
 
 set_target_properties(appsatcomhub PROPERTIES
@@ -50,13 +59,22 @@ set_target_properties(appsatcomhub PROPERTIES
 
 target_link_libraries(appsatcomhub
     PRIVATE
+        sgp4
         Qt6::Quick
         Qt6::Core
         Qt6::Positioning
         Qt6::Location
 )
 
-install(TARGETS appsatcomhub
+if (WIN32)
+    add_custom_command(TARGET appsatcomhub POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:sgp4>
+            $<TARGET_FILE_DIR:appsatcomhub>
+    )
+endif()
+
+install(TARGETS appsatcomhub sgp4
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
