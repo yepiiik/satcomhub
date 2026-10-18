@@ -1,9 +1,12 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include "../satellite/SatellitePropagator.h"
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+
+    qmlRegisterType<SatellitePropagator>("satcomhub", 1, 0, "SatellitePropagator");
 
     QQmlApplicationEngine engine;
     QObject::connect(
