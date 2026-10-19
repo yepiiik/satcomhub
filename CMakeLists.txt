@@ -43,6 +43,7 @@ qt_add_qml_module(appsatcomhub
         qml/components/MercatorMapView.qml
         qml/components/EquirectangularMapView.qml
         qml/components/MapControlsOverlay.qml
+        qml/components/PassWindowCalculator.qml
         qml/components/MapUtils.js
     RESOURCES
         resources/marker.svg

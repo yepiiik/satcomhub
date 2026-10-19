@@ -70,14 +70,20 @@ Item {
                 property real lat: model.latitude !== undefined ? model.latitude : 0
                 property real lon: model.longitude !== undefined ? model.longitude : 0
 
+                property bool isActive: model.active !== false
+
                 Repeater {
                     model: stationFootprintGroup.rad > 0 ? MapUtils.generateGeodesicPolygons(stationFootprintGroup.lat, stationFootprintGroup.lon, stationFootprintGroup.rad, 48, QtPositioning) : []
                     MapPolygon {
                         path: modelData
-                        color: stationFootprintGroup.isSelected ? "#33228be6" : "#1a228be6"
-                        border.color: stationFootprintGroup.isSelected ? "#228be6" : "#74c0fc"
+                        color: stationFootprintGroup.isSelected
+                               ? "#33228be6"
+                               : (stationFootprintGroup.isActive ? "#1a228be6" : "#0d868e96")
+                        border.color: stationFootprintGroup.isSelected
+                                      ? "#228be6"
+                                      : (stationFootprintGroup.isActive ? "#74c0fc" : "#868e96")
                         border.width: stationFootprintGroup.isSelected ? 2 : 1
-                        opacity: 0.85
+                        opacity: stationFootprintGroup.isActive ? 0.85 : 0.4
                     }
                 }
             }

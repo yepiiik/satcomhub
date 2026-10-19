@@ -131,10 +131,11 @@ Item {
                                 if (rad <= 0) continue
 
                                 var isSel = (equirectangularView.selectedStationId === item.stationId)
+                                var isActive = (item.active !== false)
                                 MapUtils.drawCanvasFootprint(
                                     ctx, item.latitude, item.longitude, rad,
-                                    isSel ? "rgba(34, 139, 230, 0.28)" : "rgba(34, 139, 230, 0.14)",
-                                    isSel ? "#228be6" : "#74c0fc",
+                                    isActive ? (isSel ? "rgba(34, 139, 230, 0.28)" : "rgba(34, 139, 230, 0.14)") : "rgba(134, 142, 150, 0.05)",
+                                    isActive ? (isSel ? "#228be6" : "#74c0fc") : "#868e96",
                                     isSel ? 2 : 1,
                                     width, height
                                 )
@@ -254,6 +255,9 @@ Item {
                         height: 44
                         z: (equirectangularView.selectedStationId === model.stationId) ? 20 : 10
 
+                        property bool isActive: model.active !== false
+                        opacity: isActive ? 1.0 : 0.65
+
                         Shape {
                             anchors.fill: parent
                             layer.enabled: true
@@ -262,7 +266,9 @@ Item {
                             ShapePath {
                                 strokeWidth: 2
                                 strokeColor: "#ffffff"
-                                fillColor: (equirectangularView.selectedStationId === model.stationId) ? "#fa5252" : "#228be6"
+                                fillColor: (equirectangularView.selectedStationId === model.stationId)
+                                           ? "#fa5252"
+                                           : (model.active !== false ? "#228be6" : "#868e96")
                                 joinStyle: ShapePath.RoundJoin
 
                                 startX: 18; startY: 40
