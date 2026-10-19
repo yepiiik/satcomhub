@@ -23,6 +23,8 @@ qt_add_executable(appsatcomhub
     src/core/main.cpp
     src/satellite/SatellitePropagator.cpp
     src/satellite/SatellitePropagator.h
+    src/satellite/StationManager.cpp
+    src/satellite/StationManager.h
 )
 
 target_include_directories(appsatcomhub PRIVATE
@@ -45,6 +47,9 @@ qt_add_qml_module(appsatcomhub
         qml/components/MapControlsOverlay.qml
         qml/components/PassWindowCalculator.qml
         qml/components/MapUtils.js
+        qml/components/CompactDoubleSpinBox.qml
+        qml/components/StationDialog.qml
+        qml/components/StationJsonViewer.qml
     RESOURCES
         resources/marker.svg
         resources/earth_equirectangular.jpg

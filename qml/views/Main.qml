@@ -46,6 +46,56 @@ ApplicationWindow {
         id: propagator
     }
 
+    StationManager {
+        id: stationManager
+    }
+
+    StationDialog {
+        id: stationDialog
+        lightMode: window.lightMode
+        accentColor: window.accentColor
+        stationManager: stationManager
+
+        onStationCommitted: (data, isEdit) => {
+            if (isEdit) {
+                for (var i = 0; i < stationsModel.count; i++) {
+                    if (stationsModel.get(i).stationId === data.stationId) {
+                        if (data.active === undefined) {
+                            data.active = stationsModel.get(i).active !== false
+                        }
+                        stationsModel.set(i, data)
+                        break
+                    }
+                }
+                window.selectedStationId = data.stationId
+            } else {
+                var newId = (data.stationId && data.stationId.length > 0) ? data.stationId : ("GS-0" + (stationsModel.count + 1))
+                data.stationId = newId
+                if (data.active === undefined) {
+                    data.active = true
+                }
+                stationsModel.append(data)
+                window.selectedStationId = newId
+            }
+            window.syncStationsToDisk()
+            mapComponent.focusOnCoordinate(data.latitude, data.longitude)
+            mapComponent.removeDraftMarker()
+            mapComponent.requestCanvasRedraw()
+        }
+
+        onPickOnMapRequested: {
+            stationDialog.close()
+            window.pickOnMapActive = true
+            mapComponent.pickModeEnabled = true
+        }
+    }
+
+    StationJsonViewer {
+        id: stationDetailsViewer
+        lightMode: window.lightMode
+        accentColor: window.accentColor
+    }
+
     property string currentUtcString: propagator.currentUtcIsoString()
     property int liveTickCounter: 0
 
@@ -120,17 +170,8 @@ ApplicationWindow {
 
     // --- Station Edit & Delete ---
     function startEditStation(station) {
-        window.editingStationId = station.stationId
-        window.showAddStationForm = true
-        window.showAddSatForm = false
-
-        stationNameInput.text = station.name
-        latInput.text = String(station.latitude)
-        lonInput.text = String(station.longitude)
-        altInput.text = String(station.altitude)
-        elevationInput.text = String(station.minElevation !== undefined ? station.minElevation : 5)
-
         window.selectedStationId = station.stationId
+        stationDialog.openForEdit(station)
         mapComponent.focusOnCoordinate(station.latitude, station.longitude)
     }
 
@@ -144,10 +185,38 @@ ApplicationWindow {
         if (window.selectedStationId === stationId) {
             window.selectedStationId = ""
         }
-        if (window.editingStationId === stationId) {
-            resetStationFormFields()
-        }
+        window.syncStationsToDisk()
         mapComponent.requestCanvasRedraw()
+    }
+
+    function syncStationsToDisk() {
+        var list = []
+        for (var i = 0; i < stationsModel.count; i++) {
+            var st = stationsModel.get(i)
+            list.push({
+                stationId: st.stationId || ("GS-0" + (i + 1)),
+                name: st.name || ("Station " + (i + 1)),
+                latitude: Number(st.latitude) || 0.0,
+                longitude: Number(st.longitude) || 0.0,
+                altitude: Number(st.altitude) || 0.0,
+                altitudeSpecified: st.altitudeSpecified !== false,
+                mobility: st.mobility || "Stationary",
+                minElevation: Number(st.minElevation) || 5.0,
+                operatingBand: st.operatingBand || "C-band",
+                polarization: st.polarization || "RHCP",
+                antennaGain: Number(st.antennaGain) || 38.5,
+                lnaNf: Number(st.lnaNf) || 0.70,
+                feederLoss: Number(st.feederLoss) || 0.30,
+                freqMinMhz: Number(st.freqMinMhz) || 4000.0,
+                freqMaxMhz: Number(st.freqMaxMhz) || 8000.0,
+                maxChannelWidthMhz: Number(st.maxChannelWidthMhz) || 4000.0,
+                totalNoiseFigureDb: Number(st.totalNoiseFigureDb) || 1.0,
+                systemNoiseTempK: Number(st.systemNoiseTempK) || 125.1,
+                gOverT: Number(st.gOverT) || 17.53,
+                active: st.active !== false
+            })
+        }
+        stationManager.saveStationsToDisk(list)
     }
 
     // --- Satellite Edit & Delete ---
@@ -187,18 +256,11 @@ ApplicationWindow {
     }
 
     function resetStationFormFields() {
-        window.isResettingForm = true
         window.editingStationId = ""
         mapComponent.removeDraftMarker()
-        stationNameInput.text = ""
-        latInput.text = ""
-        lonInput.text = ""
-        altInput.text = "150"
-        elevationInput.text = "5"
         window.pickOnMapActive = false
         mapComponent.pickModeEnabled = false
         window.showAddStationForm = false
-        window.isResettingForm = false
     }
 
     function resetSatFormFields() {
@@ -214,6 +276,7 @@ ApplicationWindow {
             if (stationsModel.get(i).stationId === stationId) {
                 var cur = stationsModel.get(i).active !== false
                 stationsModel.setProperty(i, "active", !cur)
+                window.syncStationsToDisk()
                 mapComponent.requestCanvasRedraw()
                 break
             }
@@ -224,6 +287,7 @@ ApplicationWindow {
         for (var i = 0; i < stationsModel.count; i++) {
             stationsModel.setProperty(i, "active", activeState)
         }
+        window.syncStationsToDisk()
         mapComponent.requestCanvasRedraw()
     }
 
@@ -296,20 +360,18 @@ ApplicationWindow {
 
                     // --- BUTTON 1: Add New Ground Station ---
                     Button {
-                        id: toggleAddStationBtn
+                        id: addStationBtn
                         Layout.fillWidth: true
                         height: 38
-                        text: window.showAddStationForm
-                              ? (window.editingStationId !== "" ? qsTr("✕  Cancel Editing Station") : qsTr("✕  Cancel Ground Station"))
-                              : qsTr("📡  Add new station")
+                        text: qsTr("📡  Add new station")
 
                         background: Rectangle {
                             radius: 8
-                            color: window.showAddStationForm ? "#e03131" : window.accentColor
+                            color: addStationBtn.hovered ? "#1c7ed6" : window.accentColor
                         }
 
                         contentItem: Text {
-                            text: toggleAddStationBtn.text
+                            text: addStationBtn.text
                             color: "#ffffff"
                             font.bold: true
                             font.pixelSize: 13
@@ -318,13 +380,7 @@ ApplicationWindow {
                         }
 
                         onClicked: {
-                            if (window.showAddStationForm) {
-                                window.resetStationFormFields()
-                            } else {
-                                window.editingStationId = ""
-                                window.showAddStationForm = true
-                                window.showAddSatForm = false
-                            }
+                            stationDialog.openForCreate()
                         }
                     }
 
@@ -534,240 +590,6 @@ ApplicationWindow {
                         }
                     }
 
-                    // ================= FORM 2: GROUND STATION (CREATE / EDIT) =================
-                    Rectangle {
-                        id: addStationBlock
-                        visible: window.showAddStationForm
-                        Layout.fillWidth: true
-                        implicitHeight: formLayout.implicitHeight + 28
-                        radius: 10
-                        color: window.lightMode ? window.cardLight : window.cardDark
-                        border.color: window.lightMode ? window.borderLight : window.borderDark
-                        border.width: 1
-
-                        ColumnLayout {
-                            id: formLayout
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 10
-
-                            Label {
-                                text: window.editingStationId !== "" ? qsTr("✏️ Edit Ground Station (" + window.editingStationId + ")") : qsTr("New Station Details")
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: window.accentColor
-                            }
-
-                            Label {
-                                text: qsTr("Station Name")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: stationNameInput
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("e.g. Warsaw Relay Station")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: stationNameInput.activeFocus ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                                onTextChanged: window.updateMarkerPreview()
-                            }
-
-                            Label {
-                                text: qsTr("Latitude")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: latInput
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("e.g. 52.2297")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: latInput.activeFocus ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                                onTextChanged: window.updateMarkerPreview()
-                            }
-
-                            Label {
-                                text: qsTr("Longitude")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: lonInput
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("e.g. 21.0122")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: lonInput.activeFocus ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                                onTextChanged: window.updateMarkerPreview()
-                            }
-
-                            Label {
-                                text: qsTr("Altitude / Antenna Elevation (meters)")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: altInput
-                                Layout.fillWidth: true
-                                height: 36
-                                text: "150"
-                                placeholderText: qsTr("e.g. 150")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: altInput.activeFocus ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                                onTextChanged: window.updateMarkerPreview()
-                            }
-
-                            Label {
-                                text: qsTr("Min Elevation Mask (degrees, e.g. 5° or 10°)")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: elevationInput
-                                Layout.fillWidth: true
-                                height: 36
-                                text: "5"
-                                placeholderText: qsTr("e.g. 5")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: elevationInput.activeFocus ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                                onTextChanged: window.updateMarkerPreview()
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 28
-                                radius: 4
-                                color: window.lightMode ? "#e7f5ff" : "#182842"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "Usable Pass Range for " + window.currentSatName + " (" + (parseFloat(elevationInput.text) || 5) + "° mask): " + Math.round(mapComponent.calculateStationSatVisibilityRadius(window.currentSatAltKm, (parseFloat(elevationInput.text) || 5)) / 1000) + " km"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    color: window.accentColor
-                                }
-                            }
-
-                            Button {
-                                id: pickBtn
-                                Layout.fillWidth: true
-                                height: 36
-                                text: window.pickOnMapActive ? qsTr("📍 Click map to pick...") : qsTr("🗺️ Select from map")
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.pickOnMapActive ? "#1c7ed6" : (window.lightMode ? "#e9ecef" : "#373a40")
-                                    border.color: window.pickOnMapActive ? "#74c0fc" : "transparent"
-                                }
-
-                                contentItem: Text {
-                                    text: pickBtn.text
-                                    color: window.pickOnMapActive ? "#ffffff" : (window.lightMode ? window.textLight : window.textDark)
-                                    font.bold: true
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                onClicked: {
-                                    window.pickOnMapActive = !window.pickOnMapActive
-                                    mapComponent.pickModeEnabled = window.pickOnMapActive
-                                }
-                            }
-
-                            Button {
-                                id: submitBtn
-                                Layout.fillWidth: true
-                                height: 38
-                                text: window.editingStationId !== "" ? qsTr("💾  Update Station") : qsTr("Save & Place Station")
-                                enabled: stationNameInput.text.trim().length > 0 &&
-                                         !isNaN(parseFloat(latInput.text)) &&
-                                         !isNaN(parseFloat(lonInput.text))
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: submitBtn.enabled ? "#2f9e44" : (window.lightMode ? "#ced4da" : "#495057")
-                                }
-
-                                contentItem: Text {
-                                    text: submitBtn.text
-                                    color: "#ffffff"
-                                    font.bold: true
-                                    font.pixelSize: 13
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                onClicked: {
-                                    var name = stationNameInput.text.trim()
-                                    var lat = parseFloat(latInput.text)
-                                    var lon = parseFloat(lonInput.text)
-                                    var alt = parseFloat(altInput.text) || 0
-                                    var elMask = parseFloat(elevationInput.text) || 5.0
-
-                                    mapComponent.removeDraftMarker()
-
-                                    if (window.editingStationId !== "") {
-                                        // Update existing station
-                                        for (var st = 0; st < stationsModel.count; st++) {
-                                            if (stationsModel.get(st).stationId === window.editingStationId) {
-                                                stationsModel.setProperty(st, "name", name)
-                                                stationsModel.setProperty(st, "latitude", lat)
-                                                stationsModel.setProperty(st, "longitude", lon)
-                                                stationsModel.setProperty(st, "altitude", alt)
-                                                stationsModel.setProperty(st, "minElevation", elMask)
-                                                break
-                                            }
-                                        }
-                                        window.selectedStationId = window.editingStationId
-                                    } else {
-                                        // Add new station
-                                        var newId = "GS-0" + (stationsModel.count + 1)
-                                        stationsModel.append({
-                                            stationId: newId,
-                                            name: name,
-                                            latitude: lat,
-                                            longitude: lon,
-                                            altitude: alt,
-                                            minElevation: elMask,
-                                            active: true
-                                        })
-                                        window.selectedStationId = newId
-                                    }
-
-                                    mapComponent.focusOnCoordinate(lat, lon)
-                                    mapComponent.requestCanvasRedraw()
-                                    window.resetStationFormFields()
-                                }
-                            }
-                        }
-                    }
-
                     Item { Layout.fillHeight: true }
 
                     Button {
@@ -802,12 +624,11 @@ ApplicationWindow {
             }
 
             onCoordinatePicked: (lat, lon) => {
-                latInput.text = lat.toFixed(5)
-                lonInput.text = lon.toFixed(5)
                 window.pickOnMapActive = false
                 mapComponent.pickModeEnabled = false
-
                 mapComponent.focusOnCoordinate(lat, lon)
+                stationDialog.setCoordinates(lat, lon)
+                stationDialog.open()
             }
         }
 
@@ -1134,6 +955,27 @@ ApplicationWindow {
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Set all stations as Passive")
                         }
+
+                        Button {
+                            id: openStationsFolderBtn
+                            height: 22
+                            implicitWidth: 26
+                            flat: true
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Open local stations folder in Explorer")
+                            ToolTip.delay: 300
+                            background: Rectangle {
+                                radius: 4
+                                color: openStationsFolderBtn.hovered ? (window.lightMode ? "#dee2e6" : "#373a40") : (window.lightMode ? "#e9ecef" : "#25262b")
+                            }
+                            contentItem: Text {
+                                text: "📁"
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: stationManager.openStationsFolder()
+                        }
                     }
 
                     ListView {
@@ -1243,6 +1085,49 @@ ApplicationWindow {
                                         }
                                     }
 
+                                    // RF Badges (Band, Pol, G/T)
+                                    RowLayout {
+                                        spacing: 4
+                                        Rectangle {
+                                            height: 16
+                                            width: bandBadgeText.implicitWidth + 8
+                                            radius: 3
+                                            color: window.lightMode ? "#e7f5ff" : "#182842"
+                                            border.color: window.accentColor
+                                            border.width: 1
+                                            Text {
+                                                id: bandBadgeText
+                                                anchors.centerIn: parent
+                                                text: model.operatingBand ? model.operatingBand : "C-band"
+                                                font.pixelSize: 9
+                                                font.bold: true
+                                                color: window.accentColor
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            height: 16
+                                            width: polBadgeText.implicitWidth + 8
+                                            radius: 3
+                                            color: window.lightMode ? "#f8f9fa" : "#2c2e33"
+                                            Text {
+                                                id: polBadgeText
+                                                anchors.centerIn: parent
+                                                text: model.polarization ? model.polarization : "RHCP"
+                                                font.pixelSize: 9
+                                                color: window.lightMode ? "#495057" : "#adb5bd"
+                                            }
+                                        }
+
+                                        Label {
+                                            text: (model.gOverT !== undefined ? ("G/T: " + Number(model.gOverT).toFixed(1) + " dB/K") : "")
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                            color: "#40c057"
+                                            visible: model.gOverT !== undefined
+                                        }
+                                    }
+
                                     Label {
                                         text: model.stationId + " • " + (model.minElevation !== undefined ? model.minElevation : 5) + "° Mask: " + Math.round(mapComponent.calculateStationSatVisibilityRadius(window.currentSatAltKm, (model.minElevation !== undefined ? model.minElevation : 5)) / 1000) + " km"
                                         font.pixelSize: 11
@@ -1253,11 +1138,40 @@ ApplicationWindow {
                                     }
 
                                     Label {
-                                        text: Number(model.latitude).toFixed(3) + "°, " + Number(model.longitude).toFixed(3) + "°"
+                                        text: Number(model.latitude).toFixed(3) + "°, " + Number(model.longitude).toFixed(3) + "°" + (model.systemNoiseTempK ? (" • Tsys: " + Number(model.systemNoiseTempK).toFixed(0) + " K") : "")
                                         font.pixelSize: 11
                                         color: window.lightMode ? window.subTextLight : window.subTextDark
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
+                                    }
+                                }
+
+                                // View JSON Document Button
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: window.lightMode ? "#e9ecef" : "#373a40"
+                                    }
+                                    contentItem: Text {
+                                        text: "{ }"
+                                        color: window.accentColor
+                                        font.bold: true
+                                        font.pixelSize: 11
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("View Station JSON Document")
+                                    onClicked: {
+                                        var json = model.stationJson
+                                        if (!json || json.length === 0) {
+                                            json = stationManager.buildStationJson(model)
+                                        }
+                                        stationDetailsViewer.stationName = model.name + " (" + model.stationId + ")"
+                                        stationDetailsViewer.jsonContent = json
+                                        stationDetailsViewer.open()
                                     }
                                 }
 
@@ -1270,6 +1184,8 @@ ApplicationWindow {
                                         radius: 4
                                         color: window.lightMode ? "#e9ecef" : "#373a40"
                                     }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Edit Ground Station")
                                     onClicked: window.startEditStation(model)
                                 }
 
@@ -1289,6 +1205,8 @@ ApplicationWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                     }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Delete Ground Station")
                                     onClicked: window.deleteStation(model.stationId)
                                 }
                             }
@@ -1378,6 +1296,7 @@ ApplicationWindow {
                                            : (window.lightMode ? "#e9ecef" : "#2c2e33")
                                     border.color: calcSessionBtn.enabled ? "transparent" : (window.lightMode ? "#ced4da" : "#373a40")
                                 }
+
                                 contentItem: RowLayout {
                                     spacing: 6
                                     anchors.centerIn: parent
@@ -1394,6 +1313,7 @@ ApplicationWindow {
                                         font.pixelSize: 12
                                     }
                                 }
+
                                 onClicked: {
                                     rightPanel.currentTab = 1
                                     passWindowCalculator.calculatePasses()
@@ -1468,13 +1388,111 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        // Initial Ground Stations
-        stationsModel.append([
-            { stationId: "GS-01", name: "Warsaw Primary Hub", latitude: 52.2297, longitude: 21.0122, altitude: 220.0, minElevation: 5.0, active: true },
-            { stationId: "GS-02", name: "Gdansk Coastal Relay", latitude: 54.3520, longitude: 18.6466, altitude: 110.0, minElevation: 5.0, active: true },
-            { stationId: "GS-03", name: "Krakow Southern Node", latitude: 50.0647, longitude: 19.9450, altitude: 380.0, minElevation: 5.0, active: true },
-            { stationId: "GS-04", name: "Wroclaw West Link", latitude: 51.1079, longitude: 17.0385, altitude: 175.0, minElevation: 5.0, active: true }
-        ])
+        // Load persisted ground stations if available
+        var saved = stationManager.loadStationsFromDisk()
+        if (saved && saved.length > 0) {
+            for (var s = 0; s < saved.length; s++) {
+                if (saved[s].active === undefined) saved[s].active = true
+                stationsModel.append(saved[s])
+            }
+        } else {
+            // Initial Ground Stations with rich RF configurations & band presets
+            var sampleStations = [
+                {
+                    stationId: "GS-01",
+                    name: "Warsaw Primary Hub",
+                    latitude: 52.2297,
+                    longitude: 21.0122,
+                    altitude: 220.0,
+                    altitudeSpecified: true,
+                    mobility: "Stationary",
+                    minElevation: 5.0,
+                    operatingBand: "C-band",
+                    polarization: "RHCP",
+                    antennaGain: 38.5,
+                    lnaNf: 0.70,
+                    feederLoss: 0.30,
+                    freqMinMhz: 4000.0,
+                    freqMaxMhz: 8000.0,
+                    maxChannelWidthMhz: 4000.0,
+                    totalNoiseFigureDb: 1.0,
+                    systemNoiseTempK: 125.1,
+                    gOverT: 17.53,
+                    active: true
+                },
+                {
+                    stationId: "GS-02",
+                    name: "Gdansk Coastal Relay",
+                    latitude: 54.3520,
+                    longitude: 18.6466,
+                    altitude: 110.0,
+                    altitudeSpecified: true,
+                    mobility: "Stationary",
+                    minElevation: 5.0,
+                    operatingBand: "S-band",
+                    polarization: "LHCP",
+                    antennaGain: 30.0,
+                    lnaNf: 0.85,
+                    feederLoss: 0.25,
+                    freqMinMhz: 2000.0,
+                    freqMaxMhz: 4000.0,
+                    maxChannelWidthMhz: 2000.0,
+                    totalNoiseFigureDb: 1.1,
+                    systemNoiseTempK: 133.6,
+                    gOverT: 8.74,
+                    active: true
+                },
+                {
+                    stationId: "GS-03",
+                    name: "Krakow Southern Node",
+                    latitude: 50.0647,
+                    longitude: 19.9450,
+                    altitude: 380.0,
+                    altitudeSpecified: true,
+                    mobility: "Stationary",
+                    minElevation: 5.0,
+                    operatingBand: "Ku-band",
+                    polarization: "Linear",
+                    antennaGain: 48.0,
+                    lnaNf: 0.90,
+                    feederLoss: 0.40,
+                    freqMinMhz: 12000.0,
+                    freqMaxMhz: 18000.0,
+                    maxChannelWidthMhz: 6000.0,
+                    totalNoiseFigureDb: 1.3,
+                    systemNoiseTempK: 151.2,
+                    gOverT: 26.21,
+                    active: true
+                },
+                {
+                    stationId: "GS-04",
+                    name: "Wroclaw West Link",
+                    latitude: 51.1079,
+                    longitude: 17.0385,
+                    altitude: 175.0,
+                    altitudeSpecified: true,
+                    mobility: "Stationary",
+                    minElevation: 5.0,
+                    operatingBand: "X-band",
+                    polarization: "RHCP",
+                    antennaGain: 43.5,
+                    lnaNf: 0.75,
+                    feederLoss: 0.35,
+                    freqMinMhz: 8000.0,
+                    freqMaxMhz: 12000.0,
+                    maxChannelWidthMhz: 4000.0,
+                    totalNoiseFigureDb: 1.1,
+                    systemNoiseTempK: 133.6,
+                    gOverT: 22.24,
+                    active: true
+                }
+            ]
+            for (var k = 0; k < sampleStations.length; k++) {
+                sampleStations[k]["stationJson"] = stationManager.buildStationJson(sampleStations[k])
+                stationsModel.append(sampleStations[k])
+            }
+            window.syncStationsToDisk()
+        }
 
         // Initial Sample Satellite (ISS) - Live NORAD TLE Elements
         var issL1 = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
