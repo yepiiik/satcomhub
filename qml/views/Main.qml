@@ -60,6 +60,9 @@ ApplicationWindow {
             if (isEdit) {
                 for (var i = 0; i < stationsModel.count; i++) {
                     if (stationsModel.get(i).stationId === data.stationId) {
+                        if (data.active === undefined) {
+                            data.active = stationsModel.get(i).active !== false
+                        }
                         stationsModel.set(i, data)
                         break
                     }
@@ -68,6 +71,9 @@ ApplicationWindow {
             } else {
                 var newId = (data.stationId && data.stationId.length > 0) ? data.stationId : ("GS-0" + (stationsModel.count + 1))
                 data.stationId = newId
+                if (data.active === undefined) {
+                    data.active = true
+                }
                 stationsModel.append(data)
                 window.selectedStationId = newId
             }
@@ -206,7 +212,8 @@ ApplicationWindow {
                 maxChannelWidthMhz: Number(st.maxChannelWidthMhz) || 4000.0,
                 totalNoiseFigureDb: Number(st.totalNoiseFigureDb) || 1.0,
                 systemNoiseTempK: Number(st.systemNoiseTempK) || 125.1,
-                gOverT: Number(st.gOverT) || 17.53
+                gOverT: Number(st.gOverT) || 17.53,
+                active: st.active !== false
             })
         }
         stationManager.saveStationsToDisk(list)
@@ -262,6 +269,26 @@ ApplicationWindow {
         tle1Input.text = ""
         tle2Input.text = ""
         window.showAddSatForm = false
+    }
+
+    function toggleStationActive(stationId) {
+        for (var i = 0; i < stationsModel.count; i++) {
+            if (stationsModel.get(i).stationId === stationId) {
+                var cur = stationsModel.get(i).active !== false
+                stationsModel.setProperty(i, "active", !cur)
+                window.syncStationsToDisk()
+                mapComponent.requestCanvasRedraw()
+                break
+            }
+        }
+    }
+
+    function setAllStationsActive(activeState) {
+        for (var i = 0; i < stationsModel.count; i++) {
+            stationsModel.setProperty(i, "active", activeState)
+        }
+        window.syncStationsToDisk()
+        mapComponent.requestCanvasRedraw()
     }
 
     RowLayout {
@@ -563,8 +590,6 @@ ApplicationWindow {
                         }
                     }
 
-
-
                     Item { Layout.fillHeight: true }
 
                     Button {
@@ -607,391 +632,738 @@ ApplicationWindow {
             }
         }
 
-        // ================= RIGHT PANEL (List of Satellites & Stations) =================
+        // ================= RIGHT PANEL (List of Satellites & Stations / Pass Windows F5) =================
         Rectangle {
             id: rightPanel
             Layout.fillHeight: true
-            Layout.preferredWidth: 350
+            Layout.preferredWidth: 380
             color: window.lightMode ? window.panelLight : window.panelDark
+
+            property int currentTab: 0 // 0 = Fleet & Stations, 1 = Pass Windows (F5)
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 14
-                spacing: 12
+                anchors.margins: 12
+                spacing: 10
 
-                // --- SATELLITES HEADER ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label {
-                        text: qsTr("Tracked Satellites")
-                        font.bold: true
-                        font.pixelSize: 16
-                        color: window.satColor
-                        Layout.fillWidth: true
-                    }
-                    Rectangle {
-                        width: satCountText.implicitWidth + 14
-                        height: 22
-                        radius: 11
-                        color: window.satColor
-                        Text {
-                            id: satCountText
-                            anchors.centerIn: parent
-                            text: String(satellitesModel.count)
-                            color: "#ffffff"
-                            font.bold: true
-                            font.pixelSize: 11
-                        }
-                    }
-                }
-
-                ListView {
-                    id: satellitesListView
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(contentHeight, 200)
-                    clip: true
-                    spacing: 6
-                    model: satellitesModel
-
-                    delegate: Rectangle {
-                        width: satellitesListView.width
-                        implicitHeight: satCardContent.implicitHeight + 16
-                        radius: 8
-
-                        property bool isSelected: window.selectedSatelliteId === model.satId
-
-                        color: isSelected ? (window.lightMode ? "#fff3bf" : "#372c15") : (window.lightMode ? window.cardLight : window.cardDark)
-                        border.color: isSelected ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
-                        border.width: isSelected ? 2 : 1
-
-                        RowLayout {
-                            id: satCardContent
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 8
-
-                            Text {
-                                text: "🛰️"
-                                font.pixelSize: 18
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                Label {
-                                    text: model.name
-                                    font.bold: true
-                                    font.pixelSize: 13
-                                    color: isSelected ? window.satColor : (window.lightMode ? window.textLight : window.textDark)
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Label {
-                                    property string latDir: model.latitude >= 0 ? "°N" : "°S"
-                                    property string lonDir: model.longitude >= 0 ? "°E" : "°W"
-                                    text: Math.abs(model.latitude).toFixed(2) + latDir + ", " + Math.abs(model.longitude).toFixed(2) + lonDir
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    font.family: "monospace"
-                                    color: isSelected ? window.satColor : (window.lightMode ? "#1971c2" : "#4dabf7")
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Label {
-                                    text: "Alt: " + Math.round(model.altitudeKm) + " km • Range: " + Math.round(model.visibilityRadiusMeters / 1000) + " km" + (model.velocityKmS ? " • " + model.velocityKmS.toFixed(2) + " km/s" : "")
-                                    font.pixelSize: 10
-                                    color: window.lightMode ? window.subTextLight : window.subTextDark
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            // Quick Edit Button
-                            Button {
-                                width: 28
-                                height: 28
-                                text: "✏️"
-                                background: Rectangle {
-                                    radius: 4
-                                    color: window.lightMode ? "#e9ecef" : "#373a40"
-                                }
-                                onClicked: window.startEditSatellite(model)
-                            }
-
-                            // Quick Delete Button
-                            Button {
-                                width: 28
-                                height: 28
-                                text: "🗑️"
-                                background: Rectangle {
-                                    radius: 4
-                                    color: "#fa5252"
-                                }
-                                contentItem: Text {
-                                    text: "🗑️"
-                                    color: "#ffffff"
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                onClicked: window.deleteSatellite(model.satId)
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            z: -1
-                            onClicked: window.selectSatellite(model.satId, model.latitude, model.longitude, model.altitudeKm, model.name)
-                        }
-                    }
-                }
-
+                // Top View Switcher (Tabs)
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
-                    color: window.lightMode ? window.borderLight : window.borderDark
+                    height: 38
+                    radius: 8
+                    color: window.lightMode ? "#e9ecef" : "#1a1b1e"
+                    border.color: window.lightMode ? "#dee2e6" : "#2c2e33"
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        spacing: 4
+
+                        Button {
+                            id: tabFleetBtn
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: qsTr("🛰️ Network Fleet")
+                            background: Rectangle {
+                                radius: 6
+                                color: rightPanel.currentTab === 0
+                                       ? (window.lightMode ? "#ffffff" : "#25262b")
+                                       : "transparent"
+                                border.color: rightPanel.currentTab === 0
+                                              ? (window.lightMode ? "#ced4da" : "#373a40")
+                                              : "transparent"
+                            }
+                            contentItem: Text {
+                                text: tabFleetBtn.text
+                                color: rightPanel.currentTab === 0
+                                       ? (window.lightMode ? window.textLight : "#ffffff")
+                                       : (window.lightMode ? window.subTextLight : window.subTextDark)
+                                font.bold: rightPanel.currentTab === 0
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: rightPanel.currentTab = 0
+                        }
+
+                        Button {
+                            id: tabPassesBtn
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: qsTr("📅 Pass Windows (F5)")
+                            background: Rectangle {
+                                radius: 6
+                                color: rightPanel.currentTab === 1
+                                       ? (window.lightMode ? "#ffffff" : "#25262b")
+                                       : "transparent"
+                                border.color: rightPanel.currentTab === 1
+                                              ? (window.lightMode ? "#ced4da" : "#373a40")
+                                              : "transparent"
+                            }
+                            contentItem: Text {
+                                text: tabPassesBtn.text
+                                color: rightPanel.currentTab === 1
+                                       ? (window.lightMode ? "#1971c2" : "#4dabf7")
+                                       : (window.lightMode ? window.subTextLight : window.subTextDark)
+                                font.bold: rightPanel.currentTab === 1
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: rightPanel.currentTab = 1
+                        }
+                    }
                 }
 
-                // --- GROUND STATIONS HEADER ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Label {
-                        text: qsTr("Ground Stations")
-                        font.bold: true
-                        font.pixelSize: 16
-                        color: window.lightMode ? window.textLight : window.textDark
-                        Layout.fillWidth: true
-                    }
-                    Rectangle {
-                        width: badgeCountText.implicitWidth + 14
-                        height: 22
-                        radius: 11
-                        color: window.accentColor
-                        Text {
-                            id: badgeCountText
-                            anchors.centerIn: parent
-                            text: String(stationsModel.count)
-                            color: "#ffffff"
-                            font.bold: true
-                            font.pixelSize: 11
-                        }
-                    }
-                    Button {
-                        id: openStationsFolderBtn
-                        width: 28
-                        height: 24
-                        flat: true
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Open local stations folder in Explorer")
-                        ToolTip.delay: 300
-                        background: Rectangle {
-                            radius: 4
-                            color: openStationsFolderBtn.hovered ? (window.lightMode ? "#dee2e6" : "#373a40") : "transparent"
-                        }
-                        contentItem: Text {
-                            text: "📁"
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        onClicked: stationManager.openStationsFolder()
-                    }
-                }
-
-                ListView {
-                    id: stationsListView
+                // --- TAB 0: Fleet & Stations ---
+                ColumnLayout {
+                    id: fleetViewCol
+                    visible: rightPanel.currentTab === 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    clip: true
-                    spacing: 8
-                    model: stationsModel
+                    spacing: 12
 
-                    delegate: Rectangle {
-                        id: stationCard
-                        width: stationsListView.width
-                        implicitHeight: cardContent.implicitHeight + 16
-                        radius: 8
+                    // --- SATELLITES HEADER ---
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: qsTr("Tracked Satellites")
+                            font.bold: true
+                            font.pixelSize: 16
+                            color: window.satColor
+                            Layout.fillWidth: true
+                        }
+                        Rectangle {
+                            width: satCountText.implicitWidth + 14
+                            height: 22
+                            radius: 11
+                            color: window.satColor
+                            Text {
+                                id: satCountText
+                                anchors.centerIn: parent
+                                text: String(satellitesModel.count)
+                                color: "#ffffff"
+                                font.bold: true
+                                font.pixelSize: 11
+                            }
+                        }
+                    }
 
-                        property bool isSelected: window.selectedStationId === model.stationId
+                    ListView {
+                        id: satellitesListView
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 200)
+                        clip: true
+                        spacing: 6
+                        model: satellitesModel
 
-                        color: isSelected
-                               ? (window.lightMode ? "#e7f5ff" : "#182842")
-                               : (window.lightMode ? window.cardLight : window.cardDark)
+                        delegate: Rectangle {
+                            width: satellitesListView.width
+                            implicitHeight: satCardContent.implicitHeight + 16
+                            radius: 8
 
-                        border.color: isSelected ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                        border.width: isSelected ? 2 : 1
+                            property bool isSelected: window.selectedSatelliteId === model.satId
 
-                        RowLayout {
-                            id: cardContent
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 8
+                            color: isSelected ? (window.lightMode ? "#fff3bf" : "#372c15") : (window.lightMode ? window.cardLight : window.cardDark)
+                            border.color: isSelected ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
+                            border.width: isSelected ? 2 : 1
 
-                            Rectangle {
-                                width: 34
-                                height: 34
-                                radius: 17
-                                color: stationCard.isSelected ? window.accentColor : (window.lightMode ? "#dee2e6" : "#373a40")
+                            RowLayout {
+                                id: satCardContent
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
 
                                 Text {
-                                    anchors.centerIn: parent
-                                    text: "📡"
-                                    font.pixelSize: 15
+                                    text: "🛰️"
+                                    font.pixelSize: 18
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Label {
+                                        text: model.name
+                                        font.bold: true
+                                        font.pixelSize: 13
+                                        color: isSelected ? window.satColor : (window.lightMode ? window.textLight : window.textDark)
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Label {
+                                        property string latDir: model.latitude >= 0 ? "°N" : "°S"
+                                        property string lonDir: model.longitude >= 0 ? "°E" : "°W"
+                                        text: Math.abs(model.latitude).toFixed(2) + latDir + ", " + Math.abs(model.longitude).toFixed(2) + lonDir
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        font.family: "monospace"
+                                        color: isSelected ? window.satColor : (window.lightMode ? "#1971c2" : "#4dabf7")
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Label {
+                                        text: "Alt: " + Math.round(model.altitudeKm) + " km • Range: " + Math.round(model.visibilityRadiusMeters / 1000) + " km" + (model.velocityKmS ? " • " + model.velocityKmS.toFixed(2) + " km/s" : "")
+                                        font.pixelSize: 10
+                                        color: window.lightMode ? window.subTextLight : window.subTextDark
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                // Quick Calculate Pass Windows Button (F5)
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    text: "📅"
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: window.lightMode ? "#e7f5ff" : "#182842"
+                                    }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Calculate Pass Windows (F5)")
+                                    onClicked: {
+                                        window.selectSatellite(model.satId, model.latitude, model.longitude, model.altitudeKm, model.name)
+                                        rightPanel.currentTab = 1
+                                    }
+                                }
+
+                                // Quick Edit Button
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    text: "✏️"
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: window.lightMode ? "#e9ecef" : "#373a40"
+                                    }
+                                    onClicked: window.startEditSatellite(model)
+                                }
+
+                                // Quick Delete Button
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    text: "🗑️"
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: "#fa5252"
+                                    }
+                                    contentItem: Text {
+                                        text: "🗑️"
+                                        color: "#ffffff"
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    onClicked: window.deleteSatellite(model.satId)
                                 }
                             }
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 3
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                z: -1
+                                onClicked: window.selectSatellite(model.satId, model.latitude, model.longitude, model.altitudeKm, model.name)
+                            }
+                        }
+                    }
 
-                                Label {
-                                    text: model.name
-                                    font.bold: true
-                                    font.pixelSize: 13
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: window.lightMode ? window.borderLight : window.borderDark
+                    }
+
+                    // --- GROUND STATIONS HEADER ---
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        Label {
+                            text: qsTr("Ground Stations")
+                            font.bold: true
+                            font.pixelSize: 16
+                            color: window.lightMode ? window.textLight : window.textDark
+                            Layout.fillWidth: true
+                        }
+
+                        // Active status badge
+                        Rectangle {
+                            property int activeCount: {
+                                var c = 0
+                                for (var i = 0; i < stationsModel.count; i++) {
+                                    if (stationsModel.get(i).active !== false) c++
+                                }
+                                return c
+                            }
+                            width: activeCountText.implicitWidth + 14
+                            height: 22
+                            radius: 11
+                            color: activeCount > 0 ? "#2b8a3e" : "#868e96"
+                            Text {
+                                id: activeCountText
+                                anchors.centerIn: parent
+                                text: parent.activeCount + "/" + stationsModel.count + " Active"
+                                color: "#ffffff"
+                                font.bold: true
+                                font.pixelSize: 10
+                            }
+                        }
+
+                        // Quick Toggle All
+                        Button {
+                            height: 22
+                            implicitWidth: 32
+                            text: qsTr("All")
+                            background: Rectangle {
+                                radius: 4
+                                color: window.lightMode ? "#e9ecef" : "#373a40"
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                font.pixelSize: 10
+                                font.bold: true
+                                color: window.lightMode ? "#1971c2" : "#74c0fc"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: window.setAllStationsActive(true)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Set all stations as Active")
+                        }
+
+                        Button {
+                            height: 22
+                            implicitWidth: 38
+                            text: qsTr("None")
+                            background: Rectangle {
+                                radius: 4
+                                color: window.lightMode ? "#e9ecef" : "#373a40"
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                font.pixelSize: 10
+                                font.bold: true
+                                color: window.lightMode ? "#868e96" : "#adb5bd"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: window.setAllStationsActive(false)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Set all stations as Passive")
+                        }
+
+                        Button {
+                            id: openStationsFolderBtn
+                            height: 22
+                            implicitWidth: 26
+                            flat: true
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Open local stations folder in Explorer")
+                            ToolTip.delay: 300
+                            background: Rectangle {
+                                radius: 4
+                                color: openStationsFolderBtn.hovered ? (window.lightMode ? "#dee2e6" : "#373a40") : (window.lightMode ? "#e9ecef" : "#25262b")
+                            }
+                            contentItem: Text {
+                                text: "📁"
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: stationManager.openStationsFolder()
+                        }
+                    }
+
+                    ListView {
+                        id: stationsListView
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 8
+                        model: stationsModel
+
+                        delegate: Rectangle {
+                            id: stationCard
+                            width: stationsListView.width
+                            implicitHeight: cardContent.implicitHeight + 16
+                            radius: 8
+
+                            property bool isSelected: window.selectedStationId === model.stationId
+                            property bool isActive: model.active !== false
+
+                            opacity: isActive ? 1.0 : 0.68
+
+                            color: isSelected
+                                   ? (window.lightMode ? "#e7f5ff" : "#182842")
+                                   : (window.lightMode ? window.cardLight : window.cardDark)
+
+                            border.color: isSelected ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
+                            border.width: isSelected ? 2 : 1
+
+                            RowLayout {
+                                id: cardContent
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 8
+
+                                Rectangle {
+                                    width: 34
+                                    height: 34
+                                    radius: 17
                                     color: stationCard.isSelected
                                            ? window.accentColor
-                                           : (window.lightMode ? window.textLight : window.textDark)
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
+                                           : (stationCard.isActive ? (window.lightMode ? "#dee2e6" : "#373a40") : (window.lightMode ? "#e9ecef" : "#2c2e33"))
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "📡"
+                                        font.pixelSize: 15
+                                    }
                                 }
 
-                                RowLayout {
-                                    spacing: 4
-                                    Rectangle {
-                                        height: 16
-                                        width: bandBadgeText.implicitWidth + 8
-                                        radius: 3
-                                        color: window.lightMode ? "#e7f5ff" : "#182842"
-                                        border.color: window.accentColor
-                                        border.width: 1
-                                        Text {
-                                            id: bandBadgeText
-                                            anchors.centerIn: parent
-                                            text: model.operatingBand ? model.operatingBand : "C-band"
-                                            font.pixelSize: 9
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        Label {
+                                            text: model.name
                                             font.bold: true
-                                            color: window.accentColor
+                                            font.pixelSize: 13
+                                            color: stationCard.isSelected
+                                                   ? window.accentColor
+                                                   : (window.lightMode ? window.textLight : window.textDark)
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                        }
+
+                                        // Active / Passive Toggle Pill
+                                        Button {
+                                            id: stActiveBtn
+                                            property bool isStActive: model.active !== false
+                                            height: 22
+                                            implicitWidth: togglePillText.implicitWidth + 14
+                                            background: Rectangle {
+                                                radius: 11
+                                                color: stActiveBtn.isStActive
+                                                       ? (window.lightMode ? "#d3f9d8" : "#143a1e")
+                                                       : (window.lightMode ? "#f1f3f5" : "#1a1b1e")
+                                                border.color: stActiveBtn.isStActive ? "#40c057" : (window.lightMode ? "#ced4da" : "#373a40")
+                                                border.width: 1
+                                            }
+                                            contentItem: RowLayout {
+                                                spacing: 3
+                                                anchors.centerIn: parent
+                                                Text {
+                                                    text: stActiveBtn.isStActive ? "🟢" : "⚪"
+                                                    font.pixelSize: 7
+                                                }
+                                                Text {
+                                                    id: togglePillText
+                                                    text: stActiveBtn.isStActive ? qsTr("Active") : qsTr("Passive")
+                                                    font.bold: true
+                                                    font.pixelSize: 10
+                                                    color: stActiveBtn.isStActive
+                                                           ? (window.lightMode ? "#2b8a3e" : "#51cf66")
+                                                           : (window.lightMode ? "#868e96" : "#adb5bd")
+                                                }
+                                            }
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: stActiveBtn.isStActive
+                                                          ? qsTr("Active for session calculation. Click to make Passive.")
+                                                          : qsTr("Passive (excluded). Click to make Active.")
+                                            onClicked: {
+                                                window.toggleStationActive(model.stationId)
+                                            }
                                         }
                                     }
 
-                                    Rectangle {
-                                        height: 16
-                                        width: polBadgeText.implicitWidth + 8
-                                        radius: 3
-                                        color: window.lightMode ? "#f8f9fa" : "#2c2e33"
-                                        Text {
-                                            id: polBadgeText
-                                            anchors.centerIn: parent
-                                            text: model.polarization ? model.polarization : "RHCP"
-                                            font.pixelSize: 9
-                                            color: window.lightMode ? "#495057" : "#adb5bd"
+                                    // RF Badges (Band, Pol, G/T)
+                                    RowLayout {
+                                        spacing: 4
+                                        Rectangle {
+                                            height: 16
+                                            width: bandBadgeText.implicitWidth + 8
+                                            radius: 3
+                                            color: window.lightMode ? "#e7f5ff" : "#182842"
+                                            border.color: window.accentColor
+                                            border.width: 1
+                                            Text {
+                                                id: bandBadgeText
+                                                anchors.centerIn: parent
+                                                text: model.operatingBand ? model.operatingBand : "C-band"
+                                                font.pixelSize: 9
+                                                font.bold: true
+                                                color: window.accentColor
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            height: 16
+                                            width: polBadgeText.implicitWidth + 8
+                                            radius: 3
+                                            color: window.lightMode ? "#f8f9fa" : "#2c2e33"
+                                            Text {
+                                                id: polBadgeText
+                                                anchors.centerIn: parent
+                                                text: model.polarization ? model.polarization : "RHCP"
+                                                font.pixelSize: 9
+                                                color: window.lightMode ? "#495057" : "#adb5bd"
+                                            }
+                                        }
+
+                                        Label {
+                                            text: (model.gOverT !== undefined ? ("G/T: " + Number(model.gOverT).toFixed(1) + " dB/K") : "")
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                            color: "#40c057"
+                                            visible: model.gOverT !== undefined
                                         }
                                     }
 
                                     Label {
-                                        text: (model.gOverT !== undefined ? ("G/T: " + Number(model.gOverT).toFixed(1) + " dB/K") : "")
-                                        font.pixelSize: 10
+                                        text: model.stationId + " • " + (model.minElevation !== undefined ? model.minElevation : 5) + "° Mask: " + Math.round(mapComponent.calculateStationSatVisibilityRadius(window.currentSatAltKm, (model.minElevation !== undefined ? model.minElevation : 5)) / 1000) + " km"
+                                        font.pixelSize: 11
+                                        color: stationCard.isSelected ? window.accentColor : (window.lightMode ? window.subTextLight : window.subTextDark)
+                                        font.bold: stationCard.isSelected
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Label {
+                                        text: Number(model.latitude).toFixed(3) + "°, " + Number(model.longitude).toFixed(3) + "°" + (model.systemNoiseTempK ? (" • Tsys: " + Number(model.systemNoiseTempK).toFixed(0) + " K") : "")
+                                        font.pixelSize: 11
+                                        color: window.lightMode ? window.subTextLight : window.subTextDark
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                // View JSON Document Button
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: window.lightMode ? "#e9ecef" : "#373a40"
+                                    }
+                                    contentItem: Text {
+                                        text: "{ }"
+                                        color: window.accentColor
                                         font.bold: true
-                                        color: "#40c057"
-                                        visible: model.gOverT !== undefined
+                                        font.pixelSize: 11
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("View Station JSON Document")
+                                    onClicked: {
+                                        var json = model.stationJson
+                                        if (!json || json.length === 0) {
+                                            json = stationManager.buildStationJson(model)
+                                        }
+                                        stationDetailsViewer.stationName = model.name + " (" + model.stationId + ")"
+                                        stationDetailsViewer.jsonContent = json
+                                        stationDetailsViewer.open()
                                     }
                                 }
 
-                                Label {
-                                    text: model.stationId + " • " + (model.minElevation !== undefined ? model.minElevation : 5) + "° Mask: " + Math.round(mapComponent.calculateStationSatVisibilityRadius(window.currentSatAltKm, (model.minElevation !== undefined ? model.minElevation : 5)) / 1000) + " km"
-                                    font.pixelSize: 11
-                                    color: stationCard.isSelected ? window.accentColor : (window.lightMode ? window.subTextLight : window.subTextDark)
-                                    font.bold: stationCard.isSelected
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Label {
-                                    text: Number(model.latitude).toFixed(3) + "°, " + Number(model.longitude).toFixed(3) + "°" + (model.systemNoiseTempK ? (" • Tsys: " + Number(model.systemNoiseTempK).toFixed(0) + " K") : "")
-                                    font.pixelSize: 11
-                                    color: window.lightMode ? window.subTextLight : window.subTextDark
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            // View JSON Document Button
-                            Button {
-                                width: 28
-                                height: 28
-                                background: Rectangle {
-                                    radius: 4
-                                    color: window.lightMode ? "#e9ecef" : "#373a40"
-                                }
-                                contentItem: Text {
-                                    text: "{ }"
-                                    color: window.accentColor
-                                    font.bold: true
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("View Station JSON Document")
-                                onClicked: {
-                                    var json = model.stationJson
-                                    if (!json || json.length === 0) {
-                                        json = stationManager.buildStationJson(model)
+                                // Quick Edit Button
+                                Button {
+                                    width: 28
+                                    height: 28
+                                    text: "✏️"
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: window.lightMode ? "#e9ecef" : "#373a40"
                                     }
-                                    stationDetailsViewer.stationName = model.name + " (" + model.stationId + ")"
-                                    stationDetailsViewer.jsonContent = json
-                                    stationDetailsViewer.open()
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Edit Ground Station")
+                                    onClicked: window.startEditStation(model)
                                 }
-                            }
 
-                            // Quick Edit Button
-                            Button {
-                                width: 28
-                                height: 28
-                                text: "✏️"
-                                background: Rectangle {
-                                    radius: 4
-                                    color: window.lightMode ? "#e9ecef" : "#373a40"
-                                }
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("Edit Ground Station")
-                                onClicked: window.startEditStation(model)
-                            }
-
-                            // Quick Delete Button
-                            Button {
-                                width: 28
-                                height: 28
-                                text: "🗑️"
-                                background: Rectangle {
-                                    radius: 4
-                                    color: "#fa5252"
-                                }
-                                contentItem: Text {
+                                // Quick Delete Button
+                                Button {
+                                    width: 28
+                                    height: 28
                                     text: "🗑️"
-                                    color: "#ffffff"
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: "#fa5252"
+                                    }
+                                    contentItem: Text {
+                                        text: "🗑️"
+                                        color: "#ffffff"
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Delete Ground Station")
+                                    onClicked: window.deleteStation(model.stationId)
                                 }
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("Delete Ground Station")
-                                onClicked: window.deleteStation(model.stationId)
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                z: -1
+                                onClicked: {
+                                    window.selectStation(model.stationId, model.latitude, model.longitude)
+                                }
                             }
                         }
+                    }
 
-                        MouseArea {
+                    // --- FUTURE SESSION CALCULATION ACTION CARD ---
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: calcActionCol.implicitHeight + 18
+                        radius: 8
+                        color: window.lightMode ? "#e7f5ff" : "#112238"
+                        border.color: window.lightMode ? "#a5d8ff" : "#1c7ed6"
+                        border.width: 1
+
+                        ColumnLayout {
+                            id: calcActionCol
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            hoverEnabled: true
-                            z: -1
-                            onClicked: {
-                                window.selectStation(model.stationId, model.latitude, model.longitude)
+                            anchors.margins: 10
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Text {
+                                    text: "⚡"
+                                    font.pixelSize: 15
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 1
+
+                                    Label {
+                                        text: qsTr("Future Session Window (F5)")
+                                        font.bold: true
+                                        font.pixelSize: 12
+                                        color: window.lightMode ? "#1971c2" : "#74c0fc"
+                                    }
+
+                                    Label {
+                                        property int activeCount: {
+                                            var c = 0
+                                            for (var i = 0; i < stationsModel.count; i++) {
+                                                if (stationsModel.get(i).active !== false) c++
+                                            }
+                                            return c
+                                        }
+                                        text: activeCount > 0
+                                              ? qsTr("%1 active station(s) selected for passes").arg(activeCount)
+                                              : qsTr("⚠️ No active stations selected")
+                                        font.pixelSize: 10
+                                        color: activeCount > 0 ? (window.lightMode ? "#40c057" : "#51cf66") : "#fa5252"
+                                        font.bold: true
+                                    }
+                                }
+                            }
+
+                            Button {
+                                id: calcSessionBtn
+                                Layout.fillWidth: true
+                                height: 36
+                                property int activeCount: {
+                                    var c = 0
+                                    for (var i = 0; i < stationsModel.count; i++) {
+                                        if (stationsModel.get(i).active !== false) c++
+                                    }
+                                    return c
+                                }
+                                enabled: activeCount > 0
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: calcSessionBtn.enabled
+                                           ? (calcSessionBtn.down ? "#1864ab" : (window.lightMode ? "#228be6" : "#1c7ed6"))
+                                           : (window.lightMode ? "#e9ecef" : "#2c2e33")
+                                    border.color: calcSessionBtn.enabled ? "transparent" : (window.lightMode ? "#ced4da" : "#373a40")
+                                }
+
+                                contentItem: RowLayout {
+                                    spacing: 6
+                                    anchors.centerIn: parent
+                                    Text {
+                                        text: "🚀"
+                                        font.pixelSize: 13
+                                    }
+                                    Text {
+                                        text: calcSessionBtn.enabled
+                                              ? qsTr("Calculate Future Sessions (%1 active)").arg(calcSessionBtn.activeCount)
+                                              : qsTr("Select Active Station to Calculate")
+                                        color: calcSessionBtn.enabled ? "#ffffff" : (window.lightMode ? "#adb5bd" : "#5c5f66")
+                                        font.bold: true
+                                        font.pixelSize: 12
+                                    }
+                                }
+
+                                onClicked: {
+                                    rightPanel.currentTab = 1
+                                    passWindowCalculator.calculatePasses()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- TAB 1: Pass Windows (F5) ---
+                PassWindowCalculator {
+                    id: passWindowCalculator
+                    visible: rightPanel.currentTab === 1
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    satellitesModel: satellitesModel
+                    stationsModel: stationsModel
+                    selectedSatelliteId: window.selectedSatelliteId
+                    selectedStationId: window.selectedStationId
+                    propagator: propagator
+                    lightMode: window.lightMode
+
+                    onPassSelected: (passEvent) => {
+                        if (passEvent.stationPasses && passEvent.stationPasses.length > 0) {
+                            var stName = passEvent.stationPasses[0].stationName
+                            for (var s = 0; s < stationsModel.count; s++) {
+                                if (stationsModel.get(s).name === stName) {
+                                    window.selectStation(stationsModel.get(s).stationId, stationsModel.get(s).latitude, stationsModel.get(s).longitude)
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    onSatelliteSelected: (satId, satName) => {
+                        for (var i = 0; i < satellitesModel.count; i++) {
+                            if (satellitesModel.get(i).satId === satId) {
+                                var sat = satellitesModel.get(i)
+                                window.selectSatellite(sat.satId, sat.latitude, sat.longitude, sat.altitudeKm, sat.name)
+                                break
+                            }
+                        }
+                    }
+
+                    onStationSelected: (stationId, stationName) => {
+                        for (var s = 0; s < stationsModel.count; s++) {
+                            if (stationsModel.get(s).stationId === stationId) {
+                                var st = stationsModel.get(s)
+                                window.selectStation(st.stationId, st.latitude, st.longitude)
+                                break
                             }
                         }
                     }
@@ -1020,6 +1392,7 @@ ApplicationWindow {
         var saved = stationManager.loadStationsFromDisk()
         if (saved && saved.length > 0) {
             for (var s = 0; s < saved.length; s++) {
+                if (saved[s].active === undefined) saved[s].active = true
                 stationsModel.append(saved[s])
             }
         } else {
@@ -1044,7 +1417,8 @@ ApplicationWindow {
                     maxChannelWidthMhz: 4000.0,
                     totalNoiseFigureDb: 1.0,
                     systemNoiseTempK: 125.1,
-                    gOverT: 17.53
+                    gOverT: 17.53,
+                    active: true
                 },
                 {
                     stationId: "GS-02",
@@ -1065,7 +1439,8 @@ ApplicationWindow {
                     maxChannelWidthMhz: 2000.0,
                     totalNoiseFigureDb: 1.1,
                     systemNoiseTempK: 133.6,
-                    gOverT: 8.74
+                    gOverT: 8.74,
+                    active: true
                 },
                 {
                     stationId: "GS-03",
@@ -1086,7 +1461,8 @@ ApplicationWindow {
                     maxChannelWidthMhz: 6000.0,
                     totalNoiseFigureDb: 1.3,
                     systemNoiseTempK: 151.2,
-                    gOverT: 26.21
+                    gOverT: 26.21,
+                    active: true
                 },
                 {
                     stationId: "GS-04",
@@ -1107,7 +1483,8 @@ ApplicationWindow {
                     maxChannelWidthMhz: 4000.0,
                     totalNoiseFigureDb: 1.1,
                     systemNoiseTempK: 133.6,
-                    gOverT: 22.24
+                    gOverT: 22.24,
+                    active: true
                 }
             ]
             for (var k = 0; k < sampleStations.length; k++) {

@@ -35,6 +35,14 @@ public:
     // Helper to get current UTC date/time formatted string
     Q_INVOKABLE QString currentUtcIsoString() const;
 
+    // Calculates future satellite pass windows taking into account selected satellite (TLE) and selected station(s).
+    // Supports single-station prediction and multi-station diversity / handover window combining.
+    Q_INVOKABLE QVariantMap calculatePassWindows(const QString &tleLine1,
+                                                const QString &tleLine2,
+                                                const QVariantList &stations,
+                                                int forecastHours = 24,
+                                                double stepSeconds = 20.0);
+
 private:
     static bool extractTleLines(const QString &inLine1, const QString &inLine2,
                                 QString &outName, QString &outLine1, QString &outLine2);

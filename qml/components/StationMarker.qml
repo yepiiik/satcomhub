@@ -8,6 +8,7 @@ MapQuickItem {
 
     property string stationId: model.stationId !== undefined ? model.stationId : ""
     property string stationName: model.name !== undefined ? model.name : ""
+    property bool isActive: model.active !== false
     property bool isSelected: root.selectedStationId === stationId
 
     coordinate: QtPositioning.coordinate(model.latitude, model.longitude)
@@ -15,6 +16,7 @@ MapQuickItem {
     anchorPoint.x: 18
     anchorPoint.y: 40
     z: isSelected ? 20 : 10
+    opacity: marker.isActive ? 1.0 : 0.65
 
     sourceItem: Item {
         width: 36
@@ -38,7 +40,7 @@ MapQuickItem {
             ShapePath {
                 strokeWidth: 2
                 strokeColor: "#ffffff"
-                fillColor: marker.isSelected ? "#fa5252" : "#228be6"
+                fillColor: marker.isSelected ? "#fa5252" : (marker.isActive ? "#228be6" : "#868e96")
                 joinStyle: ShapePath.RoundJoin
 
                 startX: 18
@@ -74,7 +76,7 @@ MapQuickItem {
             Text {
                 id: badgeText
                 anchors.centerIn: parent
-                text: marker.stationName
+                text: marker.stationName + (marker.isActive ? "" : " (Passive)")
                 color: "#ffffff"
                 font.pixelSize: 11
                 font.bold: true
