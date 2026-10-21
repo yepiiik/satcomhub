@@ -9,6 +9,7 @@ Popup {
     property string jsonContent: ""
     property bool lightMode: false
     property color accentColor: "#228be6"
+    property var stationManager: null
 
     modal: true
     focus: true
@@ -27,6 +28,31 @@ Popup {
         border.width: 1
     }
 
+    // Exit cross button positioned in the exact top right corner
+    Button {
+        id: closeCrossBtn
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 12
+        anchors.rightMargin: 12
+        width: 32
+        height: 32
+        z: 99
+        background: Rectangle {
+            radius: 6
+            color: closeCrossBtn.hovered ? (root.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
+        }
+        contentItem: Text {
+            text: "✕"
+            color: root.lightMode ? "#495057" : "#c1c2c5"
+            font.bold: true
+            font.pixelSize: 15
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        onClicked: root.close()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 18
@@ -35,6 +61,7 @@ Popup {
         // Header
         RowLayout {
             Layout.fillWidth: true
+            Layout.rightMargin: 36
             spacing: 8
 
             Rectangle {
@@ -66,25 +93,6 @@ Popup {
                     color: root.lightMode ? "#868e96" : "#909296"
                 }
             }
-
-            Button {
-                text: "✕"
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                background: Rectangle {
-                    radius: 6
-                    color: parent.hovered ? (root.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
-                }
-                contentItem: Text {
-                    text: "✕"
-                    color: root.lightMode ? "#495057" : "#c1c2c5"
-                    font.bold: true
-                    font.pixelSize: 14
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: root.close()
-            }
         }
 
         Rectangle {
@@ -93,11 +101,30 @@ Popup {
             color: root.lightMode ? "#e9ecef" : "#2c2e33"
         }
 
-        // Code Editor / Viewer View
+        // Code Editor / Viewer View with responsive ScrollBar
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                width: 8
+                contentItem: Rectangle {
+                    implicitWidth: 8
+                    radius: 4
+                    color: root.lightMode ? "#ced4da" : "#495057"
+                }
+            }
+            ScrollBar.horizontal: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                height: 8
+                contentItem: Rectangle {
+                    implicitHeight: 8
+                    radius: 4
+                    color: root.lightMode ? "#ced4da" : "#495057"
+                }
+            }
 
             TextArea {
                 id: jsonArea
@@ -155,6 +182,38 @@ Popup {
             }
 
             Button {
+                id: exportBtn
+                Layout.preferredHeight: 36
+                text: qsTr("💾  Export JSON")
+                background: Rectangle {
+                    radius: 6
+                    color: exportBtn.hovered ? (root.lightMode ? "#2b8a3e" : "#2f9e44") : (root.lightMode ? "#e9ecef" : "#2c2e33")
+                }
+                contentItem: Text {
+                    text: exportBtn.text
+                    color: root.lightMode ? "#212529" : "#ced4da"
+                    font.bold: true
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: {
+                    var defaultName = (root.stationName ? root.stationName.toLowerCase().replace(/[^a-z0-9_-]/g, "_") : "station") + ".json"
+                    if (root.stationManager) {
+                        var filePath = root.stationManager.saveFileDialog(qsTr("Export Station JSON"), defaultName, "JSON Files (*.json)")
+                        if (filePath && filePath.length > 0) {
+                            var success = root.stationManager.writeTextFile(filePath, root.jsonContent)
+                            if (success) {
+                                var parts = filePath.replace(/\\/g, "/").split("/")
+                                copyStatusLabel.text = qsTr("Exported: ") + parts[parts.length - 1]
+                                copyTimer.restart()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Button {
                 id: closeBtn
                 Layout.preferredHeight: 36
                 text: qsTr("Close")
@@ -177,7 +236,7 @@ Popup {
 
     Timer {
         id: copyTimer
-        interval: 2500
+        interval: 3000
         onTriggered: copyStatusLabel.text = ""
     }
 }

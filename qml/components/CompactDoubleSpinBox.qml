@@ -153,17 +153,6 @@ Item {
                             textInput.text = formatValue(root.value)
                         }
                     }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.NoButton
-                        onWheel: (wheel) => {
-                            if (!root.isOptional || root.optionalEnabled) {
-                                if (wheel.angleDelta.y > 0) root.stepBy(1)
-                                else if (wheel.angleDelta.y < 0) root.stepBy(-1)
-                            }
-                        }
-                    }
                 }
 
                 // Suffix label inside box if space permits
