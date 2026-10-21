@@ -96,6 +96,12 @@ ApplicationWindow {
         accentColor: window.accentColor
     }
 
+    PassSnrPlotModal {
+        id: snrPlotModal
+        lightMode: window.lightMode
+        onClosed: snrProfileData = null
+    }
+
     property string currentUtcString: propagator.currentUtcIsoString()
     property int liveTickCounter: 0
 
@@ -1335,6 +1341,10 @@ ApplicationWindow {
                     selectedStationId: window.selectedStationId
                     propagator: propagator
                     lightMode: window.lightMode
+
+                    onSnrPlotRequested: (snrData) => {
+                        snrPlotModal.snrProfileData = snrData
+                    }
 
                     onPassSelected: (passEvent) => {
                         if (passEvent.stationPasses && passEvent.stationPasses.length > 0) {

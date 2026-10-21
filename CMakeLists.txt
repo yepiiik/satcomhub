@@ -23,6 +23,8 @@ qt_add_executable(appsatcomhub
     src/core/main.cpp
     src/satellite/SatellitePropagator.cpp
     src/satellite/SatellitePropagator.h
+    src/satellite/SignalLossModel.cpp
+    src/satellite/SignalLossModel.h
     src/satellite/StationManager.cpp
     src/satellite/StationManager.h
 )
@@ -46,6 +48,7 @@ qt_add_qml_module(appsatcomhub
         qml/components/EquirectangularMapView.qml
         qml/components/MapControlsOverlay.qml
         qml/components/PassWindowCalculator.qml
+        qml/components/PassSnrPlotModal.qml
         qml/components/MapUtils.js
         qml/components/CompactDoubleSpinBox.qml
         qml/components/StationDialog.qml

@@ -22,6 +22,7 @@ Rectangle {
     signal passSelected(var passEvent)
     signal satelliteSelected(string satId, string satName)
     signal stationSelected(string stationId, string stationName)
+    signal snrPlotRequested(var snrProfileData)
 
     color: lightMode ? "#ffffff" : "#1a1b1e"
     radius: 10
@@ -62,12 +63,42 @@ Rectangle {
                         latitude: item.latitude,
                         longitude: item.longitude,
                         altitude: item.altitude || 0,
-                        minElevation: item.minElevation !== undefined ? item.minElevation : 5.0
+                        minElevation: item.minElevation !== undefined ? item.minElevation : 5.0,
+                        gOverT: item.gOverT !== undefined ? item.gOverT : 17.5,
+                        feederLoss: item.feederLoss !== undefined ? item.feederLoss : 0.3,
+                        freqMinMhz: item.freqMinMhz || 0.0,
+                        freqMaxMhz: item.freqMaxMhz || 0.0
                     })
                 }
             }
         }
         return list
+    }
+
+    function openSnrPlotForPass(passEvent) {
+        if (!propagator) return
+        var sat = getSelectedSatellite()
+        if (!sat || !sat.tle1 || !sat.tle2) return
+        var stationsToCalc = getActiveStations()
+        if (stationsToCalc.length === 0) return
+
+        var startIso = passEvent.combinedAosUtc
+        var endIso = passEvent.combinedLosUtc
+
+        var res = propagator.calculatePassSnrProfile(
+            sat.tle1,
+            sat.tle2,
+            stationsToCalc,
+            startIso,
+            endIso,
+            1.0,
+            33.0,
+            3.0,
+            5840.0,
+            10000.0
+        )
+
+        snrPlotRequested(res)
     }
 
     function calculatePasses() {
@@ -666,7 +697,7 @@ Rectangle {
                         }
                     }
 
-                    // Expand / Collapse Details Button
+                    // Action Buttons Row
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
@@ -674,7 +705,28 @@ Rectangle {
                         Button {
                             height: 24
                             Layout.fillWidth: true
-                            text: passCard.expanded ? qsTr("▲ Hide Station Breakdown") : qsTr("▼ Show Station Breakdown (" + (modelData.stationPasses ? modelData.stationPasses.length : 0) + ")")
+                            text: qsTr("📈 Plot SNR & Loss (F7)")
+                            background: Rectangle {
+                                radius: 4
+                                color: passCalcRoot.lightMode ? "#e7f5ff" : "#1c2b42"
+                                border.color: "#339af0"
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: "#339af0"
+                                font.pixelSize: 10
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: passCalcRoot.openSnrPlotForPass(modelData)
+                        }
+
+                        Button {
+                            height: 24
+                            width: passCard.expanded ? 115 : 130
+                            text: passCard.expanded ? qsTr("▲ Hide Details") : qsTr("▼ Details (" + (modelData.stationPasses ? modelData.stationPasses.length : 0) + ")")
                             background: Rectangle {
                                 radius: 4
                                 color: "transparent"
@@ -693,7 +745,7 @@ Rectangle {
 
                         Button {
                             height: 24
-                            width: 60
+                            width: 50
                             text: qsTr("Select")
                             background: Rectangle {
                                 radius: 4
