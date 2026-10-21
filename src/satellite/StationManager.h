@@ -35,6 +35,13 @@ public:
         const QString &filter = "JSON Files (*.json);;All Files (*.*)"
     );
 
+    // Native save file dialog to export a JSON file on Windows/Desktop
+    Q_INVOKABLE QString saveFileDialog(
+        const QString &title = "Export Station Configuration",
+        const QString &defaultFileName = "ground_station.json",
+        const QString &filter = "JSON Files (*.json);;All Files (*.*)"
+    );
+
     // File I/O helpers
     Q_INVOKABLE QString readTextFile(const QString &filePath);
     Q_INVOKABLE bool writeTextFile(const QString &filePath, const QString &content);

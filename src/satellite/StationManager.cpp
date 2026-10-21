@@ -28,6 +28,12 @@ StationManager::StationManager(QObject *parent)
 void StationManager::getBandFrequencies(const QString &band, double customMin, double customMax,
                                         double &outMinMhz, double &outMaxMhz)
 {
+    if (customMin > 0.0 && customMax >= customMin) {
+        outMinMhz = customMin;
+        outMaxMhz = customMax;
+        return;
+    }
+
     QString b = band.trimmed().toLower();
     if (b.contains("c-band") || b == "c") {
         outMinMhz = 4000.0;
@@ -139,7 +145,16 @@ QString StationManager::buildStationJson(const QVariantMap &stationData)
     double lnaNf = stationData.value("lnaNf", 0.7).toDouble();
     double feederLoss = stationData.value("feederLoss", 0.3).toDouble();
 
-    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain);
+    double customFMin = stationData.value("freqMinMhz", 0.0).toDouble();
+    double customFMax = stationData.value("freqMaxMhz", 0.0).toDouble();
+    if (customFMin <= 0.0 && stationData.contains("frequency_min_mhz")) {
+        customFMin = stationData.value("frequency_min_mhz").toDouble();
+    }
+    if (customFMax <= 0.0 && stationData.contains("frequency_max_mhz")) {
+        customFMax = stationData.value("frequency_max_mhz").toDouble();
+    }
+
+    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, customFMin, customFMax);
 
     root["version"] = "1.0";
     root["type"] = "ground_station_antenna";
@@ -166,6 +181,9 @@ QString StationManager::buildStationJson(const QVariantMap &stationData)
     rf["frequency_min_mhz"] = derived["freq_min_mhz"].toDouble();
     rf["frequency_max_mhz"] = derived["freq_max_mhz"].toDouble();
     rf["max_channel_width_mhz"] = derived["max_channel_width_mhz"].toDouble();
+    rf["frequency_min_ghz"] = std::round((derived["freq_min_mhz"].toDouble() / 1000.0) * 1000.0) / 1000.0;
+    rf["frequency_max_ghz"] = std::round((derived["freq_max_mhz"].toDouble() / 1000.0) * 1000.0) / 1000.0;
+    rf["max_channel_width_ghz"] = std::round((derived["max_channel_width_mhz"].toDouble() / 1000.0) * 1000.0) / 1000.0;
     rf["polarization"] = polarization;
     rf["antenna_gain_dbi"] = gain;
     rf["lna_noise_figure_db"] = lnaNf;
@@ -269,11 +287,16 @@ QVariantMap StationManager::parseStationJson(const QString &jsonString)
     double gain = 38.5;
     double lnaNf = 0.7;
     double feederLoss = 0.3;
+    double fMinMhz = 0.0;
+    double fMaxMhz = 0.0;
 
     if (obj.contains("rf_configuration") && obj["rf_configuration"].isObject()) {
         QJsonObject rf = obj["rf_configuration"].toObject();
         if (rf.contains("operating_band")) band = rf.value("operating_band").toString();
         else if (rf.contains("band")) band = rf.value("band").toString();
+
+        if (rf.contains("frequency_min_mhz")) fMinMhz = rf.value("frequency_min_mhz").toDouble();
+        if (rf.contains("frequency_max_mhz")) fMaxMhz = rf.value("frequency_max_mhz").toDouble();
 
         if (rf.contains("polarization")) polarization = rf.value("polarization").toString();
         if (rf.contains("antenna_gain_dbi")) gain = rf.value("antenna_gain_dbi").toDouble(38.5);
@@ -283,6 +306,12 @@ QVariantMap StationManager::parseStationJson(const QString &jsonString)
         if (obj.contains("operatingBand")) band = obj.value("operatingBand").toString();
         else if (obj.contains("band")) band = obj.value("band").toString();
 
+        if (obj.contains("freqMinMhz")) fMinMhz = obj.value("freqMinMhz").toDouble();
+        else if (obj.contains("frequency_min_mhz")) fMinMhz = obj.value("frequency_min_mhz").toDouble();
+
+        if (obj.contains("freqMaxMhz")) fMaxMhz = obj.value("freqMaxMhz").toDouble();
+        else if (obj.contains("frequency_max_mhz")) fMaxMhz = obj.value("frequency_max_mhz").toDouble();
+
         if (obj.contains("polarization")) polarization = obj.value("polarization").toString();
         if (obj.contains("antennaGain")) gain = obj.value("antennaGain").toDouble(38.5);
         if (obj.contains("lnaNf")) lnaNf = obj.value("lnaNf").toDouble(0.7);
@@ -290,7 +319,7 @@ QVariantMap StationManager::parseStationJson(const QString &jsonString)
     }
 
     // Compute derived parameters
-    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain);
+    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, fMinMhz, fMaxMhz);
 
     result["valid"] = true;
     result["stationId"] = id;
@@ -337,6 +366,33 @@ QString StationManager::openFileDialog(const QString &title, const QString &filt
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
     if (GetOpenFileNameW(&ofn)) {
+        return QString::fromWCharArray(szFile);
+    }
+#endif
+    return QString();
+}
+
+QString StationManager::saveFileDialog(const QString &title, const QString &defaultFileName, const QString &filter)
+{
+    Q_UNUSED(filter);
+#ifdef _WIN32
+    wchar_t szFile[MAX_PATH] = L"";
+    std::wstring defNameW = defaultFileName.toStdWString();
+    wcsncpy_s(szFile, defNameW.c_str(), _TRUNCATE);
+
+    OPENFILENAMEW ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFilter = L"JSON Station Configurations (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile) / sizeof(szFile[0]);
+    ofn.lpstrDefExt = L"json";
+    std::wstring titleW = title.toStdWString();
+    ofn.lpstrTitle = titleW.c_str();
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+
+    if (GetSaveFileNameW(&ofn)) {
         return QString::fromWCharArray(szFile);
     }
 #endif

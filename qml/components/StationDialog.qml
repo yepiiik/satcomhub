@@ -50,6 +50,31 @@ Popup {
     property string importStatusText: ""
     property bool importSuccess: false
 
+    // Exit cross button positioned in the exact top right corner
+    Button {
+        id: closeCrossBtn
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 12
+        anchors.rightMargin: 12
+        width: 32
+        height: 32
+        z: 99
+        background: Rectangle {
+            radius: 6
+            color: closeCrossBtn.hovered ? (root.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
+        }
+        contentItem: Text {
+            text: "✕"
+            color: root.lightMode ? "#495057" : "#c1c2c5"
+            font.bold: true
+            font.pixelSize: 15
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        onClicked: root.close()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 18
@@ -58,6 +83,7 @@ Popup {
         // ================= HEADER =================
         RowLayout {
             Layout.fillWidth: true
+            Layout.rightMargin: 36
             spacing: 10
 
             Rectangle {
@@ -89,29 +115,9 @@ Popup {
                     color: root.lightMode ? "#868e96" : "#909296"
                 }
             }
-
-            Button {
-                text: "✕"
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                background: Rectangle {
-                    radius: 6
-                    color: parent.hovered ? (root.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
-                }
-                contentItem: Text {
-                    text: "✕"
-                    color: root.lightMode ? "#495057" : "#c1c2c5"
-                    font.bold: true
-                    font.pixelSize: 14
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: root.close()
-            }
         }
 
-        // ================= 3-OPTION SEGMENTED BAR =================
-        // User requested: "first of all there need to be 3 options: u will be able to add, import or export ur station configuration... no export option as for now."
+        // ================= 2-OPTION SEGMENTED BAR =================
         Rectangle {
             Layout.fillWidth: true
             height: 40
@@ -180,40 +186,6 @@ Popup {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.activeTab = 1
-                    }
-                }
-
-                // Option 3: Export (Reserved / No export for now as requested)
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    radius: 6
-                    color: "transparent"
-                    opacity: 0.55
-
-                    RowLayout {
-                        anchors.centerIn: parent
-                        spacing: 6
-                        Text {
-                            text: "💾"
-                            font.pixelSize: 12
-                        }
-                        Text {
-                            text: qsTr("Export (Coming Soon)")
-                            font.bold: false
-                            font.pixelSize: 12
-                            color: root.lightMode ? "#868e96" : "#6c757d"
-                        }
-                    }
-
-                    ToolTip.visible: exportMouse.containsMouse
-                    ToolTip.text: qsTr("Export station configuration will be available in the next release.")
-
-                    MouseArea {
-                        id: exportMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.ForbiddenCursor
                     }
                 }
             }
@@ -501,6 +473,52 @@ Popup {
                     }
                 }
 
+                // --- 5b. PRECISE OPERATING FREQUENCIES (f_min, f_max) ---
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    CompactDoubleSpinBox {
+                        id: fMinSpinBox
+                        Layout.fillWidth: true
+                        label: qsTr("5b. Min Frequency (f_min)")
+                        suffix: " GHz"
+                        from: 0.05
+                        to: 100.0
+                        stepSize: 0.1
+                        decimals: 3
+                        value: 4.000
+                        lightMode: root.lightMode
+                        accentColor: root.accentColor
+                        onValueModified: (val) => {
+                            if (val > fMaxSpinBox.value) {
+                                fMaxSpinBox.value = val
+                            }
+                            root.recalculateParameters()
+                        }
+                    }
+
+                    CompactDoubleSpinBox {
+                        id: fMaxSpinBox
+                        Layout.fillWidth: true
+                        label: qsTr("5c. Max Frequency (f_max)")
+                        suffix: " GHz"
+                        from: 0.05
+                        to: 100.0
+                        stepSize: 0.1
+                        decimals: 3
+                        value: 8.000
+                        lightMode: root.lightMode
+                        accentColor: root.accentColor
+                        onValueModified: (val) => {
+                            if (val < fMinSpinBox.value) {
+                                fMinSpinBox.value = val
+                            }
+                            root.recalculateParameters()
+                        }
+                    }
+                }
+
                 // --- 7. ANTENNA GAIN [dBi] ---
                 RowLayout {
                     Layout.fillWidth: true
@@ -604,7 +622,10 @@ Popup {
                                     color: root.lightMode ? "#495057" : "#adb5bd"
                                 }
                                 Label {
-                                    text: root.calcFreqMin + " – " + root.calcFreqMax + " MHz"
+                                    text: (fMinSpinBox.value >= 1.0
+                                          ? (fMinSpinBox.value.toFixed(2) + " – " + fMaxSpinBox.value.toFixed(2) + " GHz")
+                                          : (root.calcFreqMin.toFixed(0) + " – " + root.calcFreqMax.toFixed(0) + " MHz"))
+                                          + " (" + root.calcFreqMin.toFixed(0) + " – " + root.calcFreqMax.toFixed(0) + " MHz)"
                                     font.pixelSize: 11
                                     font.bold: true
                                     font.family: "monospace"
@@ -621,7 +642,9 @@ Popup {
                                     color: root.lightMode ? "#495057" : "#adb5bd"
                                 }
                                 Label {
-                                    text: root.calcMaxChannelWidth + " MHz"
+                                    text: (root.calcMaxChannelWidth >= 1000.0
+                                          ? ((root.calcMaxChannelWidth / 1000.0).toFixed(2) + " GHz / ")
+                                          : "") + root.calcMaxChannelWidth.toFixed(0) + " MHz"
                                     font.pixelSize: 11
                                     font.bold: true
                                     font.family: "monospace"
@@ -699,7 +722,7 @@ Popup {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: importInfoCol.implicitHeight + 20
+                    implicitHeight: importInfoCol.implicitHeight + 28
                     radius: 8
                     color: root.lightMode ? "#f8f9fa" : "#141517"
                     border.color: root.lightMode ? "#dee2e6" : "#2c2e33"
@@ -707,9 +730,11 @@ Popup {
 
                     ColumnLayout {
                         id: importInfoCol
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 14
+                        spacing: 10
 
                         Label {
                             text: qsTr("📁 Import Ground Station Configuration File")
@@ -725,79 +750,188 @@ Popup {
                             Layout.fillWidth: true
                         }
 
-                        RowLayout {
+                        // Horizontally scrollable row for actions and sample presets
+                        Flickable {
+                            id: sampleFlickable
                             Layout.fillWidth: true
-                            spacing: 8
+                            Layout.preferredHeight: 38
+                            contentWidth: sampleRow.implicitWidth
+                            contentHeight: 38
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
 
-                            Button {
-                                id: browseBtn
-                                text: qsTr("📂  Browse JSON File...")
-                                height: 36
-                                background: Rectangle {
-                                    radius: 6
-                                    color: browseBtn.hovered ? "#1c7ed6" : root.accentColor
-                                }
-                                contentItem: Text {
-                                    text: browseBtn.text
-                                    color: "#ffffff"
-                                    font.bold: true
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                onClicked: root.triggerFileBrowse()
-                            }
-
-                            Button {
-                                id: openFolderImportBtn
-                                text: qsTr("📁  Open Stations Folder")
-                                height: 36
-                                background: Rectangle {
-                                    radius: 6
-                                    color: openFolderImportBtn.hovered ? (root.lightMode ? "#dee2e6" : "#373a40") : (root.lightMode ? "#e9ecef" : "#2c2e33")
-                                }
-                                contentItem: Text {
-                                    text: openFolderImportBtn.text
-                                    color: root.lightMode ? "#495057" : "#ced4da"
-                                    font.bold: true
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                onClicked: {
-                                    if (root.stationManager) {
-                                        root.stationManager.openStationsFolder()
+                            WheelHandler {
+                                target: sampleFlickable
+                                onWheel: (event) => {
+                                    if (event.angleDelta.y !== 0) {
+                                        sampleFlickable.contentX = Math.max(0, Math.min(sampleRow.implicitWidth - sampleFlickable.width, sampleFlickable.contentX - event.angleDelta.y))
+                                    } else if (event.angleDelta.x !== 0) {
+                                        sampleFlickable.contentX = Math.max(0, Math.min(sampleRow.implicitWidth - sampleFlickable.width, sampleFlickable.contentX - event.angleDelta.x))
                                     }
                                 }
                             }
 
-                            // Quick sample load buttons
-                            Label {
-                                text: qsTr("or Samples:")
-                                font.pixelSize: 11
-                                color: root.lightMode ? "#868e96" : "#adb5bd"
+                            RowLayout {
+                                id: sampleRow
+                                height: 38
+                                spacing: 8
+
+                                Button {
+                                    id: browseBtn
+                                    text: qsTr("📂  Browse JSON File...")
+                                    height: 36
+                                    background: Rectangle {
+                                        radius: 6
+                                        color: browseBtn.hovered ? "#1c7ed6" : root.accentColor
+                                    }
+                                    contentItem: Text {
+                                        text: browseBtn.text
+                                        color: "#ffffff"
+                                        font.bold: true
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    onClicked: root.triggerFileBrowse()
+                                }
+
+                                Button {
+                                    id: openFolderImportBtn
+                                    text: qsTr("📁  Open Stations Folder")
+                                    height: 36
+                                    background: Rectangle {
+                                        radius: 6
+                                        color: openFolderImportBtn.hovered ? (root.lightMode ? "#dee2e6" : "#373a40") : (root.lightMode ? "#e9ecef" : "#2c2e33")
+                                    }
+                                    contentItem: Text {
+                                        text: openFolderImportBtn.text
+                                        color: root.lightMode ? "#495057" : "#ced4da"
+                                        font.bold: true
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    onClicked: {
+                                        if (root.stationManager) {
+                                            root.stationManager.openStationsFolder()
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 1
+                                    height: 22
+                                    color: root.lightMode ? "#dee2e6" : "#2c2e33"
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
+                                // Quick sample load buttons
+                                Label {
+                                    text: qsTr("or Samples:")
+                                    font.pixelSize: 11
+                                    color: root.lightMode ? "#868e96" : "#adb5bd"
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
+                                Button {
+                                    text: "C-Band"
+                                    height: 32
+                                    onClicked: root.loadSampleJson("C-band")
+                                }
+                                Button {
+                                    text: "S-Band"
+                                    height: 32
+                                    onClicked: root.loadSampleJson("S-band")
+                                }
+                                Button {
+                                    text: "X-Band"
+                                    height: 32
+                                    onClicked: root.loadSampleJson("X-band")
+                                }
+                                Button {
+                                    text: "Ku-Band"
+                                    height: 32
+                                    onClicked: root.loadSampleJson("Ku-band")
+                                }
+                                Button {
+                                    text: "Ka-Band"
+                                    height: 32
+                                    onClicked: root.loadSampleJson("Ka-band")
+                                }
+                            }
+                        }
+
+                        // Dedicated prominent horizontal scrollbar
+                        Rectangle {
+                            id: sampleScrollBarTrack
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 10
+                            radius: 5
+                            color: root.lightMode ? "#e9ecef" : "#1e2024"
+                            border.color: root.lightMode ? "#ced4da" : "#2c2e33"
+                            border.width: 1
+
+                            Rectangle {
+                                id: scrollThumb
+                                height: parent.height - 2
+                                y: 1
+                                radius: 4
+                                color: thumbMouse.pressed ? root.accentColor : (thumbMouse.containsMouse ? (root.lightMode ? "#74c0fc" : "#4dabf7") : (root.lightMode ? "#adb5bd" : "#5c5f66"))
+
+                                // Proportional width with a minimum of 40px
+                                width: Math.max(40, parent.width * Math.min(1.0, sampleFlickable.width / Math.max(1, sampleRow.implicitWidth)))
+
+                                // Position bound to sampleFlickable.contentX
+                                x: {
+                                    var maxScroll = Math.max(1, sampleRow.implicitWidth - sampleFlickable.width)
+                                    var maxThumbX = parent.width - width - 2
+                                    var ratio = Math.max(0, Math.min(1.0, sampleFlickable.contentX / maxScroll))
+                                    return 1 + ratio * maxThumbX
+                                }
+
+                                MouseArea {
+                                    id: thumbMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    drag.target: scrollThumb
+                                    drag.axis: Drag.XAxis
+                                    drag.minimumX: 1
+                                    drag.maximumX: sampleScrollBarTrack.width - scrollThumb.width - 1
+                                    cursorShape: Qt.PointingHandCursor
+
+                                    onPositionChanged: {
+                                        if (drag.active) {
+                                            var maxThumbX = sampleScrollBarTrack.width - scrollThumb.width - 2
+                                            if (maxThumbX > 0) {
+                                                var ratio = (scrollThumb.x - 1) / maxThumbX
+                                                var maxScroll = Math.max(0, sampleRow.implicitWidth - sampleFlickable.width)
+                                                sampleFlickable.contentX = ratio * maxScroll
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
-                            Button {
-                                text: "C-Band"
-                                height: 30
-                                onClicked: root.loadSampleJson("C-band")
-                            }
-                            Button {
-                                text: "S-Band"
-                                height: 30
-                                onClicked: root.loadSampleJson("S-band")
-                            }
-                            Button {
-                                text: "Ku-Band"
-                                height: 30
-                                onClicked: root.loadSampleJson("Ku-band")
+                            // Click anywhere on track to jump
+                            MouseArea {
+                                anchors.fill: parent
+                                z: -1
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: (mouse) => {
+                                    var maxThumbX = parent.width - scrollThumb.width - 2
+                                    if (maxThumbX > 0) {
+                                        var targetX = Math.max(1, Math.min(maxThumbX, mouse.x - scrollThumb.width / 2))
+                                        var ratio = (targetX - 1) / maxThumbX
+                                        var maxScroll = Math.max(0, sampleRow.implicitWidth - sampleFlickable.width)
+                                        sampleFlickable.contentX = ratio * maxScroll
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // JSON Paste / Direct Input Box
+                // JSON Paste / Direct Input Box with ScrollView and ScrollBar
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 4
@@ -809,24 +943,47 @@ Popup {
                         color: root.lightMode ? "#495057" : "#ced4da"
                     }
 
-                    TextArea {
-                        id: importTextArea
+                    ScrollView {
                         Layout.fillWidth: true
-                        implicitHeight: 180
-                        wrapMode: TextEdit.NoWrap
-                        font.family: "Consolas, 'Courier New', monospace"
-                        font.pixelSize: 11
-                        color: root.lightMode ? "#212529" : "#a9e34b"
-                        selectByMouse: true
-                        placeholderText: qsTr("{\n  \"name\": \"Antenna Station\",\n  \"coordinates\": { \"latitude\": 52.23, \"longitude\": 21.01 },\n  \"rf_configuration\": { ... }\n}")
+                        Layout.preferredHeight: 200
+                        clip: true
 
-                        background: Rectangle {
-                            radius: 6
-                            color: root.lightMode ? "#ffffff" : "#1a1b1e"
-                            border.color: importTextArea.activeFocus ? root.accentColor : (root.lightMode ? "#ced4da" : "#373a40")
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            width: 8
+                            contentItem: Rectangle {
+                                implicitWidth: 8
+                                radius: 4
+                                color: root.lightMode ? "#ced4da" : "#495057"
+                            }
+                        }
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AsNeeded
+                            height: 8
+                            contentItem: Rectangle {
+                                implicitHeight: 8
+                                radius: 4
+                                color: root.lightMode ? "#ced4da" : "#495057"
+                            }
                         }
 
-                        onTextChanged: root.validateImportJson(importTextArea.text)
+                        TextArea {
+                            id: importTextArea
+                            wrapMode: TextEdit.NoWrap
+                            font.family: "Consolas, 'Courier New', monospace"
+                            font.pixelSize: 11
+                            color: root.lightMode ? "#212529" : "#a9e34b"
+                            selectByMouse: true
+                            placeholderText: qsTr("{\n  \"name\": \"Antenna Station\",\n  \"coordinates\": { \"latitude\": 52.23, \"longitude\": 21.01 },\n  \"rf_configuration\": { ... }\n}")
+
+                            background: Rectangle {
+                                radius: 6
+                                color: root.lightMode ? "#ffffff" : "#1a1b1e"
+                                border.color: importTextArea.activeFocus ? root.accentColor : (root.lightMode ? "#ced4da" : "#373a40")
+                            }
+
+                            onTextChanged: root.validateImportJson(importTextArea.text)
+                        }
                     }
                 }
 
@@ -904,6 +1061,37 @@ Popup {
                 }
             }
 
+            // Export JSON button (Tab 0 only)
+            Button {
+                visible: root.activeTab === 0
+                text: qsTr("💾  Export JSON")
+                height: 38
+                background: Rectangle {
+                    radius: 6
+                    color: root.lightMode ? "#e9ecef" : "#2c2e33"
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: root.lightMode ? "#495057" : "#ced4da"
+                    font.bold: true
+                    font.pixelSize: 12
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: {
+                    var data = root.gatherFormData()
+                    var json = root.stationManager ? root.stationManager.buildStationJson(data) : JSON.stringify(data, null, 2)
+                    var defaultName = (nameInput.text.trim().length > 0
+                                       ? nameInput.text.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_")
+                                       : "station") + ".json"
+                    if (root.stationManager) {
+                        var filePath = root.stationManager.saveFileDialog(qsTr("Export Station JSON"), defaultName, "JSON Files (*.json)")
+                        if (filePath && filePath.length > 0) {
+                            root.stationManager.writeTextFile(filePath, json)
+                        }
+                    }
+                }
+            }
+
             Item { Layout.fillWidth: true }
 
             Button {
@@ -974,6 +1162,7 @@ Popup {
         id: previewViewer
         lightMode: root.lightMode
         accentColor: root.accentColor
+        stationManager: root.stationManager
     }
 
     // ================= HELPER FUNCTIONS =================
@@ -992,6 +1181,8 @@ Popup {
         gainSpinBox.value = 38.5
         lnaNfSpinBox.value = 0.70
         feederLossSpinBox.value = 0.30
+        fMinSpinBox.value = 4.000
+        fMaxSpinBox.value = 8.000
         importTextArea.text = ""
         root.importStatusText = ""
         root.importSuccess = false
@@ -1032,6 +1223,26 @@ Popup {
         lnaNfSpinBox.value = Number(station.lnaNf) || 0.70
         feederLossSpinBox.value = Number(station.feederLoss) || 0.30
 
+        if (station.freqMinGhz !== undefined && station.freqMinGhz > 0) {
+            fMinSpinBox.value = Number(station.freqMinGhz)
+        } else if (station.freqMinMhz !== undefined && station.freqMinMhz > 0) {
+            fMinSpinBox.value = Number(station.freqMinMhz) / 1000.0
+        } else if (station.frequency_min_mhz !== undefined && station.frequency_min_mhz > 0) {
+            fMinSpinBox.value = Number(station.frequency_min_mhz) / 1000.0
+        } else {
+            fMinSpinBox.value = 4.000
+        }
+
+        if (station.freqMaxGhz !== undefined && station.freqMaxGhz > 0) {
+            fMaxSpinBox.value = Number(station.freqMaxGhz)
+        } else if (station.freqMaxMhz !== undefined && station.freqMaxMhz > 0) {
+            fMaxSpinBox.value = Number(station.freqMaxMhz) / 1000.0
+        } else if (station.frequency_max_mhz !== undefined && station.frequency_max_mhz > 0) {
+            fMaxSpinBox.value = Number(station.frequency_max_mhz) / 1000.0
+        } else {
+            fMaxSpinBox.value = 8.000
+        }
+
         recalculateParameters()
         root.open()
     }
@@ -1045,57 +1256,57 @@ Popup {
     function applyBandPreset(index) {
         switch (index) {
             case 0: // C-band
-                root.calcFreqMin = 4000.0
-                root.calcFreqMax = 8000.0
+                fMinSpinBox.value = 4.000
+                fMaxSpinBox.value = 8.000
                 gainSpinBox.value = 38.5
                 lnaNfSpinBox.value = 0.70
                 feederLossSpinBox.value = 0.30
                 break
             case 1: // S-band
-                root.calcFreqMin = 2000.0
-                root.calcFreqMax = 4000.0
+                fMinSpinBox.value = 2.000
+                fMaxSpinBox.value = 4.000
                 gainSpinBox.value = 30.0
                 lnaNfSpinBox.value = 0.85
                 feederLossSpinBox.value = 0.25
                 break
             case 2: // X-band
-                root.calcFreqMin = 8000.0
-                root.calcFreqMax = 12000.0
+                fMinSpinBox.value = 8.000
+                fMaxSpinBox.value = 12.000
                 gainSpinBox.value = 43.5
                 lnaNfSpinBox.value = 0.75
                 feederLossSpinBox.value = 0.35
                 break
             case 3: // Ku-band
-                root.calcFreqMin = 12000.0
-                root.calcFreqMax = 18000.0
+                fMinSpinBox.value = 12.000
+                fMaxSpinBox.value = 18.000
                 gainSpinBox.value = 48.0
                 lnaNfSpinBox.value = 0.90
                 feederLossSpinBox.value = 0.40
                 break
             case 4: // Ka-band
-                root.calcFreqMin = 26500.0
-                root.calcFreqMax = 40000.0
+                fMinSpinBox.value = 26.500
+                fMaxSpinBox.value = 40.000
                 gainSpinBox.value = 54.0
                 lnaNfSpinBox.value = 1.30
                 feederLossSpinBox.value = 0.60
                 break
             case 5: // L-band
-                root.calcFreqMin = 1000.0
-                root.calcFreqMax = 2000.0
+                fMinSpinBox.value = 1.000
+                fMaxSpinBox.value = 2.000
                 gainSpinBox.value = 24.0
                 lnaNfSpinBox.value = 0.80
                 feederLossSpinBox.value = 0.20
                 break
             case 6: // UHF
-                root.calcFreqMin = 400.0
-                root.calcFreqMax = 470.0
+                fMinSpinBox.value = 0.400
+                fMaxSpinBox.value = 0.470
                 gainSpinBox.value = 16.0
                 lnaNfSpinBox.value = 1.10
                 feederLossSpinBox.value = 0.20
                 break
             case 7: // VHF
-                root.calcFreqMin = 136.0
-                root.calcFreqMax = 174.0
+                fMinSpinBox.value = 0.136
+                fMaxSpinBox.value = 0.174
                 gainSpinBox.value = 12.0
                 lnaNfSpinBox.value = 1.50
                 feederLossSpinBox.value = 0.20
@@ -1108,12 +1319,17 @@ Popup {
         var rawBand = bandCombo.currentText
         var bandName = rawBand.split(" ")[0]
 
+        var fMinMhz = fMinSpinBox.value * 1000.0
+        var fMaxMhz = fMaxSpinBox.value * 1000.0
+
         if (root.stationManager) {
             var der = root.stationManager.computeDerivedParameters(
                 bandName,
                 lnaNfSpinBox.value,
                 feederLossSpinBox.value,
-                gainSpinBox.value
+                gainSpinBox.value,
+                fMinMhz,
+                fMaxMhz
             )
             root.calcFreqMin = der.freq_min_mhz
             root.calcFreqMax = der.freq_max_mhz
@@ -1124,7 +1340,9 @@ Popup {
             root.calcGOverT = der.g_over_t_db_k
         } else {
             // Pure JS fallback
-            root.calcMaxChannelWidth = Math.max(0, root.calcFreqMax - root.calcFreqMin)
+            root.calcFreqMin = fMinMhz
+            root.calcFreqMax = fMaxMhz
+            root.calcMaxChannelWidth = Math.max(0, fMaxMhz - fMinMhz)
             root.calcTotalNf = lnaNfSpinBox.value + feederLossSpinBox.value
             var fLin = Math.pow(10.0, root.calcTotalNf / 10.0)
             root.calcRecNoiseTemp = 290.0 * (fLin - 1.0)
@@ -1153,6 +1371,8 @@ Popup {
             feederLoss: feederLossSpinBox.value,
             freqMinMhz: root.calcFreqMin,
             freqMaxMhz: root.calcFreqMax,
+            freqMinGhz: fMinSpinBox.value,
+            freqMaxGhz: fMaxSpinBox.value,
             maxChannelWidthMhz: root.calcMaxChannelWidth,
             totalNoiseFigureDb: root.calcTotalNf,
             systemNoiseTempK: root.calcSysNoiseTemp,
