@@ -55,60 +55,53 @@ Item {
 
         property point lastMousePos
 
-        // Station Visibility Footprints (with Antimeridian Split Support)
+        // Station Visibility Footprints
         MapItemView {
             model: mercatorView.stationsModel
-            delegate: MapItemGroup {
-                id: stationFootprintGroup
+            delegate: MapCircle {
+                id: stationFootprintCircle
+                z: 1
                 property bool isSelected: mercatorView.selectedStationId === model.stationId
+                property bool isActive: model.active !== false
                 property real rad: MapUtils.calculateStationSatVisibilityRadius(
                     mercatorView.targetSatelliteAltitudeKm,
                     model.minElevation !== undefined ? model.minElevation : mercatorView.minElevationDeg,
                     mercatorView.targetSatelliteAltitudeKm,
                     mercatorView.minElevationDeg
                 )
-                property real lat: model.latitude !== undefined ? model.latitude : 0
-                property real lon: model.longitude !== undefined ? model.longitude : 0
 
-                property bool isActive: model.active !== false
-
-                Repeater {
-                    model: stationFootprintGroup.rad > 0 ? MapUtils.generateGeodesicPolygons(stationFootprintGroup.lat, stationFootprintGroup.lon, stationFootprintGroup.rad, 48, QtPositioning) : []
-                    MapPolygon {
-                        path: modelData
-                        color: stationFootprintGroup.isSelected
-                               ? "#33228be6"
-                               : (stationFootprintGroup.isActive ? "#1a228be6" : "#0d868e96")
-                        border.color: stationFootprintGroup.isSelected
-                                      ? "#228be6"
-                                      : (stationFootprintGroup.isActive ? "#74c0fc" : "#868e96")
-                        border.width: stationFootprintGroup.isSelected ? 2 : 1
-                        opacity: stationFootprintGroup.isActive ? 0.85 : 0.4
-                    }
-                }
+                center: QtPositioning.coordinate(model.latitude !== undefined ? model.latitude : 0,
+                                                 model.longitude !== undefined ? model.longitude : 0)
+                radius: rad > 0 ? rad : 0
+                color: isSelected
+                       ? "#33228be6"
+                       : (isActive ? "#1a228be6" : "#0d868e96")
+                border.color: isSelected
+                              ? "#228be6"
+                              : (isActive ? "#74c0fc" : "#868e96")
+                border.width: isSelected ? 2 : 1
+                opacity: isActive ? 0.85 : 0.4
+                visible: radius > 0
             }
         }
 
         // Satellite Visibility Footprints (Ground Horizon Entrance/Exit Coverage)
         MapItemView {
             model: mercatorView.satellitesModel
-            delegate: MapItemGroup {
-                id: satFootprintGroup
+            delegate: MapCircle {
+                id: satFootprintCircle
+                z: 2
                 property bool isSelected: mercatorView.selectedSatelliteId === model.satId
-                property real rad: model.visibilityRadiusMeters !== undefined ? model.visibilityRadiusMeters : 0
-                property real lat: model.latitude !== undefined ? model.latitude : 0
-                property real lon: model.longitude !== undefined ? model.longitude : 0
+                property real rad: (model.visibilityRadiusMeters !== undefined && model.visibilityRadiusMeters > 0) ? model.visibilityRadiusMeters : 0
 
-                Repeater {
-                    model: satFootprintGroup.rad > 0 ? MapUtils.generateGeodesicPolygons(satFootprintGroup.lat, satFootprintGroup.lon, satFootprintGroup.rad, 64, QtPositioning) : []
-                    MapPolygon {
-                        path: modelData
-                        color: satFootprintGroup.isSelected ? "#33f59f00" : "#1af59f00"
-                        border.color: satFootprintGroup.isSelected ? "#f59f00" : "#ffd43b"
-                        border.width: satFootprintGroup.isSelected ? 2 : 1
-                        opacity: 0.9
-                    }
-                }
+                center: QtPositioning.coordinate(model.latitude !== undefined ? model.latitude : 0,
+                                                 model.longitude !== undefined ? model.longitude : 0)
+                radius: rad > 0 ? rad : 0
+                color: isSelected ? "#33f59f00" : "#1af59f00"
+                border.color: isSelected ? "#f59f00" : "#ffd43b"
+                border.width: isSelected ? 2 : 1
+                opacity: 0.85
+                visible: radius > 0
             }
         }
 
@@ -160,7 +153,10 @@ Item {
         // Station Markers
         MapItemView {
             model: mercatorView.stationsModel
-            delegate: StationMarker {}
+            delegate: StationMarker {
+                isSelected: mercatorView.selectedStationId === model.stationId
+                onClicked: (id, name) => mercatorView.markerSelected(id, name)
+            }
         }
 
         // Satellite Markers
@@ -173,25 +169,22 @@ Item {
         }
 
         // Draft Station Footprint Preview
-        MapItemGroup {
-            id: draftPolygonGroup
+        MapCircle {
+            id: draftFootprintCircle
+            z: 3
             property real draftRad: MapUtils.calculateStationSatVisibilityRadius(
                 mercatorView.targetSatelliteAltitudeKm,
                 mercatorView.minElevationDeg,
                 mercatorView.targetSatelliteAltitudeKm,
                 mercatorView.minElevationDeg
             )
+            center: QtPositioning.coordinate(mercatorView.draftLat, mercatorView.draftLon)
+            radius: draftRad > 0 ? draftRad : 0
+            color: "#33fa5252"
+            border.color: "#fa5252"
+            border.width: 2
+            opacity: 0.85
             visible: mercatorView.hasDraft && (draftRad > 0)
-            Repeater {
-                model: draftPolygonGroup.visible ? MapUtils.generateGeodesicPolygons(mercatorView.draftLat, mercatorView.draftLon, draftPolygonGroup.draftRad, 48, QtPositioning) : []
-                MapPolygon {
-                    path: modelData
-                    color: "#33fa5252"
-                    border.color: "#fa5252"
-                    border.width: 2
-                    opacity: 0.85
-                }
-            }
         }
 
         // Draft Station Marker Preview

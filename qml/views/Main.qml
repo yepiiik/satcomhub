@@ -11,6 +11,7 @@ ApplicationWindow {
     minimumHeight: 550
     visible: true
     title: qsTr("SatComHub - Satellite & Ground Station Monitor")
+    color: lightMode ? bgLight : bgDark
 
     property bool lightMode: Application.styleHints.colorScheme === Qt.Light
     property color bgDark: "#10121a"
@@ -446,16 +447,26 @@ ApplicationWindow {
         planningSnrData = res
     }
 
-    // ================= MAIN APPLICATION LAYOUT (CoolerControl Style) =================
-    // 3 Columns: [1: VerticalNavBar] [2: Contextual List Block] [3: Main Content Area]
-    RowLayout {
+    // ================= MAIN APPLICATION LAYOUT (GridLayout: 3 Columns) =================
+    // Columns: [0: sideNavBar] [1: leftBlock] [2: rightBlock]
+    GridLayout {
+        id: mainLayout
         anchors.fill: parent
-        spacing: 0
+        columns: 3
+        rows: 1
+        columnSpacing: 12
+        rowSpacing: 12
+        anchors.margins: 12
 
-        // ----------------- COLUMN 1: VERTICAL NAVBAR (Width 64) -----------------
+        // ----------------- COLUMN 0: SIDENAVBAR (Width 64) -----------------
         VerticalNavBar {
-            id: navBar
+            id: sideNavBar
+            Layout.row: 0
+            Layout.column: 0
             Layout.fillHeight: true
+            Layout.preferredWidth: 64
+            Layout.minimumWidth: 64
+            Layout.maximumWidth: 64
             currentTab: window.currentNavTab
             lightMode: window.lightMode
             currentUtcString: window.currentUtcString
@@ -472,11 +483,19 @@ ApplicationWindow {
             }
         }
 
-        // ----------------- COLUMN 2: CONTEXTUAL LIST BLOCK (Width 350) -----------------
-        Item {
-            id: listBlockContainer
+        // ----------------- COLUMN 1: LEFTBLOCK (Contextual List Block, Width 350) -----------------
+        Rectangle {
+            id: leftBlock
+            Layout.row: 0
+            Layout.column: 1
             Layout.fillHeight: true
             Layout.preferredWidth: 350
+            Layout.minimumWidth: 280
+            radius: 12
+            clip: true
+            color: window.lightMode ? "#ffffff" : "#141720"
+            border.color: window.lightMode ? "#dee2e6" : "#262b3a"
+            border.width: 1
 
             // TAB 0 LIST BLOCK: Objects (Satellites & Ground Stations)
             ObjectsListSidebar {
@@ -585,11 +604,18 @@ ApplicationWindow {
             }
         }
 
-        // ----------------- COLUMN 3: MAIN AREA (Takes remaining width) -----------------
-        Item {
-            id: mainAreaContainer
+        // ----------------- COLUMN 2: RIGHTBLOCK (Main Area, Takes remaining width) -----------------
+        Rectangle {
+            id: rightBlock
+            Layout.row: 0
+            Layout.column: 2
             Layout.fillWidth: true
             Layout.fillHeight: true
+            radius: 12
+            clip: true
+            color: window.lightMode ? "#ffffff" : "#141720"
+            border.color: window.lightMode ? "#dee2e6" : "#262b3a"
+            border.width: 1
 
             // TAB 0 MAIN AREA: Map Component
             MapComponent {
@@ -638,6 +664,86 @@ ApplicationWindow {
                 visible: window.currentNavTab === 2
                 observationData: window.currentHistoricalObservation
                 lightMode: window.lightMode
+            }
+
+            // Smooth rounded corner mask overlay (masks the map/views to clean radius: 12)
+            Canvas {
+                id: rightBlockCornerOverlay
+                anchors.fill: parent
+                z: 99
+                enabled: false
+
+                property real radiusVal: 12
+                property color bgColor: window.lightMode ? window.bgLight : window.bgDark
+                property color borderColor: window.lightMode ? window.borderLight : window.borderDark
+
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onBgColorChanged: requestPaint()
+                onBorderColorChanged: requestPaint()
+
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    var r = radiusVal
+                    var w = width
+                    var h = height
+                    if (w <= 0 || h <= 0) return
+
+                    ctx.fillStyle = bgColor
+
+                    // Top-Left corner wedge
+                    ctx.beginPath()
+                    ctx.moveTo(0, 0)
+                    ctx.lineTo(r, 0)
+                    ctx.arc(r, r, r, 1.5 * Math.PI, Math.PI, true)
+                    ctx.lineTo(0, 0)
+                    ctx.closePath()
+                    ctx.fill()
+
+                    // Top-Right corner wedge
+                    ctx.beginPath()
+                    ctx.moveTo(w, 0)
+                    ctx.lineTo(w, r)
+                    ctx.arc(w - r, r, r, 0, 1.5 * Math.PI, true)
+                    ctx.lineTo(w, 0)
+                    ctx.closePath()
+                    ctx.fill()
+
+                    // Bottom-Right corner wedge
+                    ctx.beginPath()
+                    ctx.moveTo(w, h)
+                    ctx.lineTo(w - r, h)
+                    ctx.arc(w - r, h - r, r, 0.5 * Math.PI, 0, true)
+                    ctx.lineTo(w, h)
+                    ctx.closePath()
+                    ctx.fill()
+
+                    // Bottom-Left corner wedge
+                    ctx.beginPath()
+                    ctx.moveTo(0, h)
+                    ctx.lineTo(0, h - r)
+                    ctx.arc(r, h - r, r, Math.PI, 0.5 * Math.PI, true)
+                    ctx.lineTo(0, h)
+                    ctx.closePath()
+                    ctx.fill()
+
+                    // Rounded perimeter border
+                    ctx.beginPath()
+                    ctx.moveTo(0.5 + r, 0.5)
+                    ctx.lineTo(w - 0.5 - r, 0.5)
+                    ctx.arc(w - 0.5 - r, 0.5 + r, r, 1.5 * Math.PI, 0, false)
+                    ctx.lineTo(w - 0.5, h - 0.5 - r)
+                    ctx.arc(w - 0.5 - r, h - 0.5 - r, r, 0, 0.5 * Math.PI, false)
+                    ctx.lineTo(0.5 + r, h - 0.5)
+                    ctx.arc(0.5 + r, h - 0.5 - r, r, 0.5 * Math.PI, Math.PI, false)
+                    ctx.lineTo(0.5, 0.5 + r)
+                    ctx.arc(0.5 + r, 0.5 + r, r, Math.PI, 1.5 * Math.PI, false)
+                    ctx.closePath()
+                    ctx.strokeStyle = borderColor
+                    ctx.lineWidth = 1
+                    ctx.stroke()
+                }
             }
         }
     }

@@ -8,7 +8,9 @@ Rectangle {
     property var observationData: null
     property bool lightMode: false
 
-    color: lightMode ? "#f8f9fa" : "#0d1017"
+    radius: 12
+    clip: true
+    color: "transparent"
 
     // ================= EMPTY STATE =================
     ColumnLayout {

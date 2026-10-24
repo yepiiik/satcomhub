@@ -6,10 +6,12 @@ import QtPositioning
 MapQuickItem {
     id: marker
 
+    signal clicked(string stationId, string stationName)
+
     property string stationId: model.stationId !== undefined ? model.stationId : ""
     property string stationName: model.name !== undefined ? model.name : ""
     property bool isActive: model.active !== false
-    property bool isSelected: root.selectedStationId === stationId
+    property bool isSelected: (typeof root !== "undefined" && root.selectedStationId !== undefined) ? (root.selectedStationId === stationId) : false
 
     coordinate: QtPositioning.coordinate(model.latitude, model.longitude)
 
@@ -88,7 +90,10 @@ MapQuickItem {
             cursorShape: Qt.PointingHandCursor
             hoverEnabled: true
             onClicked: {
-                root.markerSelected(marker.stationId, marker.stationName)
+                marker.clicked(marker.stationId, marker.stationName)
+                if (typeof root !== "undefined" && root.markerSelected) {
+                    root.markerSelected(marker.stationId, marker.stationName)
+                }
             }
         }
     }

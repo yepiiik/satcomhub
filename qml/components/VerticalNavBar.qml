@@ -13,6 +13,8 @@ Rectangle {
     signal themeToggleRequested()
 
     width: 64
+    radius: 12
+    clip: true
     color: lightMode ? "#eef0f3" : "#0d1017"
     border.color: lightMode ? "#dee2e6" : "#1e2230"
     border.width: 1
