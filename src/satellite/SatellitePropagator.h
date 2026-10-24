@@ -43,6 +43,18 @@ public:
                                                 int forecastHours = 24,
                                                 double stepSeconds = 20.0);
 
+    // Computes aligned signal loss vectors (FSPL, atmospheric, total loss) and SNR time-series for a satellite pass across participating stations
+    Q_INVOKABLE QVariantMap calculatePassSnrProfile(const QString &tleLine1,
+                                                   const QString &tleLine2,
+                                                   const QVariantList &stations,
+                                                   const QString &startUtcIso,
+                                                   const QString &endUtcIso,
+                                                   double sampleRateHz = 1.0,
+                                                   double txPowerDbm = 33.0,
+                                                   double txAntennaGainDbi = 3.0,
+                                                   double carrierFreqMhz = 5840.0,
+                                                   double channelBandwidthKhz = 10000.0);
+
 private:
     static bool extractTleLines(const QString &inLine1, const QString &inLine2,
                                 QString &outName, QString &outLine1, QString &outLine2);

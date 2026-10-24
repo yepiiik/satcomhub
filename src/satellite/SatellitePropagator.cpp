@@ -1,4 +1,5 @@
 #include "SatellitePropagator.h"
+#include "SignalLossModel.h"
 
 #include <libsgp4/CoordGeodetic.h>
 #include <libsgp4/DateTime.h>
@@ -25,10 +26,13 @@
 
 namespace {
 static libsgp4::DateTime toSgp4DateTime(const QDateTime &qdt) {
-    QDateTime utc = qdt.toUTC();
+    QDateTime utc = qdt.isValid() ? qdt.toUTC() : QDateTime::currentDateTimeUtc();
     QDate d = utc.date();
     QTime t = utc.time();
-    return libsgp4::DateTime(d.year(), d.month(), d.day(),
+    int y = d.year() > 0 ? d.year() : 2026;
+    int m = (d.month() >= 1 && d.month() <= 12) ? d.month() : 1;
+    int day = (d.day() >= 1 && d.day() <= 31) ? d.day() : 1;
+    return libsgp4::DateTime(y, m, day,
                              t.hour(), t.minute(), t.second(),
                              t.msec() * 1000);
 }
@@ -583,3 +587,40 @@ QVariantMap SatellitePropagator::calculatePassWindows(const QString &tleLine1,
         return result;
     }
 }
+
+QVariantMap SatellitePropagator::calculatePassSnrProfile(const QString &tleLine1,
+                                                        const QString &tleLine2,
+                                                        const QVariantList &stations,
+                                                        const QString &startUtcIso,
+                                                        const QString &endUtcIso,
+                                                        double sampleRateHz,
+                                                        double txPowerDbm,
+                                                        double txAntennaGainDbi,
+                                                        double carrierFreqMhz,
+                                                        double channelBandwidthKhz) {
+    QDateTime startUtc = QDateTime::fromString(startUtcIso, Qt::ISODate);
+    if (!startUtc.isValid()) {
+        startUtc = QDateTime::fromString(startUtcIso, "yyyy-MM-dd HH:mm:ss 'UTC'");
+        if (!startUtc.isValid()) {
+            startUtc = QDateTime::fromString(startUtcIso, "yyyy-MM-dd HH:mm:ss");
+        }
+    }
+    startUtc.setTimeZone(QTimeZone::UTC);
+
+    QDateTime endUtc = QDateTime::fromString(endUtcIso, Qt::ISODate);
+    if (!endUtc.isValid()) {
+        endUtc = QDateTime::fromString(endUtcIso, "yyyy-MM-dd HH:mm:ss 'UTC'");
+        if (!endUtc.isValid()) {
+            endUtc = QDateTime::fromString(endUtcIso, "yyyy-MM-dd HH:mm:ss");
+        }
+    }
+    endUtc.setTimeZone(QTimeZone::UTC);
+
+    JointSessionSnrResult res = SignalLossModel::computeJointSessionSnr(
+        tleLine1, tleLine2, stations, startUtc, endUtc,
+        sampleRateHz, txPowerDbm, txAntennaGainDbi, carrierFreqMhz, channelBandwidthKhz
+    );
+
+    return res.toVariantMap();
+}
+
