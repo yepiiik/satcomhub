@@ -13,7 +13,9 @@ Rectangle {
     property bool showShannonLimits: true
     property int hoveredSampleIndex: -1
 
-    color: lightMode ? "#f8f9fa" : "#0d1017"
+    radius: 12
+    clip: true
+    color: "transparent"
 
     readonly property var stationColors: [
         "#339af0", // Cyan / Azure

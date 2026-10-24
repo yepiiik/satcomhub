@@ -19,9 +19,10 @@ Rectangle {
     signal satelliteChanged(string satId)
     signal forecastDurationSelected(int hours)
 
-    color: lightMode ? "#ffffff" : "#141720"
-    border.color: lightMode ? "#dee2e6" : "#1e2230"
-    border.width: 1
+    radius: 12
+    clip: true
+    color: "transparent"
+    border.width: 0
 
     ColumnLayout {
         anchors.fill: parent
