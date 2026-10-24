@@ -7,17 +7,17 @@ ApplicationWindow {
     id: window
     width: 1440
     height: 880
-    minimumWidth: 800
-    minimumHeight: 500
+    minimumWidth: 900
+    minimumHeight: 550
     visible: true
     title: qsTr("SatComHub - Satellite & Ground Station Monitor")
 
     property bool lightMode: Application.styleHints.colorScheme === Qt.Light
-    property color bgDark: "#1a1b1e"
+    property color bgDark: "#10121a"
     property color bgLight: "#f8f9fa"
-    property color panelDark: "#25262b"
+    property color panelDark: "#141720"
     property color panelLight: "#ffffff"
-    property color cardDark: "#2c2e33"
+    property color cardDark: "#1a1e29"
     property color cardLight: "#f1f3f5"
     property color textDark: "#e9ecef"
     property color textLight: "#212529"
@@ -25,22 +25,27 @@ ApplicationWindow {
     property color subTextLight: "#6c757d"
     property color accentColor: "#228be6"
     property color satColor: "#f59f00"
-    property color borderDark: "#373a40"
+    property color borderDark: "#262b3a"
     property color borderLight: "#dee2e6"
 
-    property bool showAddStationForm: false
-    property bool showAddSatForm: false
-    property bool pickOnMapActive: false
-    property bool isResettingForm: false
+    // Active navigation tab (0: Objects, 1: Planning, 2: History)
+    property int currentNavTab: 0
 
+    property bool pickOnMapActive: false
     property string selectedStationId: ""
     property string selectedSatelliteId: ""
     property real currentSatAltKm: 500.0
     property string currentSatName: "Default LEO (500 km)"
 
-    // Edit states
-    property string editingStationId: ""
-    property string editingSatId: ""
+    // Planning state
+    property var planningPassResult: null
+    property var currentPlanningSession: null
+    property var planningSnrData: null
+    property int planningForecastHours: 24
+    property bool isCalculatingPlanning: false
+
+    // History state
+    property var currentHistoricalObservation: null
 
     SatellitePropagator {
         id: propagator
@@ -50,6 +55,7 @@ ApplicationWindow {
         id: stationManager
     }
 
+    // ================= MODAL DIALOGS =================
     StationDialog {
         id: stationDialog
         lightMode: window.lightMode
@@ -81,12 +87,53 @@ ApplicationWindow {
             mapComponent.focusOnCoordinate(data.latitude, data.longitude)
             mapComponent.removeDraftMarker()
             mapComponent.requestCanvasRedraw()
+            if (window.currentNavTab === 1) {
+                window.calculateFuturePasses()
+            }
         }
 
         onPickOnMapRequested: {
             stationDialog.close()
             window.pickOnMapActive = true
             mapComponent.pickModeEnabled = true
+        }
+    }
+
+    SatelliteDialog {
+        id: satelliteDialog
+        lightMode: window.lightMode
+        propagator: propagator
+
+        onSatelliteCommitted: (data, isEdit) => {
+            if (isEdit) {
+                for (var s = 0; s < satellitesModel.count; s++) {
+                    if (satellitesModel.get(s).satId === data.satId) {
+                        satellitesModel.setProperty(s, "name", data.name)
+                        satellitesModel.setProperty(s, "tle1", data.tle1)
+                        satellitesModel.setProperty(s, "tle2", data.tle2)
+                        satellitesModel.setProperty(s, "latitude", data.latitude)
+                        satellitesModel.setProperty(s, "longitude", data.longitude)
+                        satellitesModel.setProperty(s, "altitudeKm", data.altitudeKm)
+                        satellitesModel.setProperty(s, "visibilityRadiusMeters", data.visibilityRadiusMeters)
+                        satellitesModel.setProperty(s, "velocityKmS", data.velocityKmS || 0)
+                        satellitesModel.setProperty(s, "trajectory", data.trajectory || [])
+                        satellitesModel.setProperty(s, "prevTrajectory", data.prevTrajectory || [])
+                        satellitesModel.setProperty(s, "nextTrajectory", data.nextTrajectory || [])
+                        break
+                    }
+                }
+                window.selectSatellite(data.satId, data.latitude, data.longitude, data.altitudeKm, data.name)
+            } else {
+                var newSatId = (data.satId && data.satId.length > 0) ? data.satId : ("SAT-0" + (satellitesModel.count + 1))
+                data.satId = newSatId
+                satellitesModel.append(data)
+                window.selectSatellite(newSatId, data.latitude, data.longitude, data.altitudeKm, data.name)
+            }
+            mapComponent.focusOnCoordinate(data.latitude, data.longitude)
+            mapComponent.requestCanvasRedraw()
+            if (window.currentNavTab === 1) {
+                window.calculateFuturePasses()
+            }
         }
     }
 
@@ -102,6 +149,7 @@ ApplicationWindow {
         onClosed: snrProfileData = null
     }
 
+    // ================= LIVE SATELLITE PROPAGATION TIMER =================
     property string currentUtcString: propagator.currentUtcIsoString()
     property int liveTickCounter: 0
 
@@ -150,6 +198,7 @@ ApplicationWindow {
         mapComponent.requestCanvasRedraw()
     }
 
+    // ================= DATA MODELS =================
     ListModel {
         id: stationsModel
     }
@@ -158,6 +207,56 @@ ApplicationWindow {
         id: satellitesModel
     }
 
+    ListModel {
+        id: historyModel
+        ListElement {
+            obsId: "OBS-2026-10-21-01"
+            satelliteName: "ISS (ZARYA)"
+            stationName: "Warsaw Primary Hub"
+            dateTimeUtc: "2026-10-21 14:22:10 UTC"
+            durationFormatted: "10m 15s"
+            maxSnrDb: 18.4
+            meanSnrDb: 12.1
+            maxElevationDeg: 62.4
+            status: "Decoded"
+            decodedFrames: 1240
+            totalFrames: 1248
+            operator: "SP3PUT Lab Team"
+            notes: "Clear pass above Central Europe. C-band downlink fully locked from AOS+45s to LOS-30s. Turbo decoder rate 1/2 achieved 99.3% packet success."
+        }
+        ListElement {
+            obsId: "OBS-2026-10-20-03"
+            satelliteName: "POLYITAN-3-PUT (LEO)"
+            stationName: "Warsaw Primary Hub"
+            dateTimeUtc: "2026-10-20 18:05:44 UTC"
+            durationFormatted: "8m 30s"
+            maxSnrDb: 14.8
+            meanSnrDb: 9.6
+            maxElevationDeg: 41.0
+            status: "Decoded"
+            decodedFrames: 940
+            totalFrames: 960
+            operator: "SP5PUT Ground Station"
+            notes: "Multi-station handover test. Track handover initiated at TCA+60s with Krakow GS."
+        }
+        ListElement {
+            obsId: "OBS-2026-10-19-02"
+            satelliteName: "ISS (ZARYA)"
+            stationName: "Krakow GS-02"
+            dateTimeUtc: "2026-10-19 09:12:00 UTC"
+            durationFormatted: "6m 50s"
+            maxSnrDb: 11.2
+            meanSnrDb: 6.8
+            maxElevationDeg: 24.5
+            status: "Partial"
+            decodedFrames: 610
+            totalFrames: 820
+            operator: "AGH Space Systems"
+            notes: "Low elevation pass. Tree obstruction near horizon caused minor packet drops between 5° and 10° elevation."
+        }
+    }
+
+    // ================= HELPER FUNCTIONS =================
     function selectStation(stationId, latitude, longitude) {
         window.selectedSatelliteId = ""
         window.selectedStationId = stationId
@@ -174,7 +273,6 @@ ApplicationWindow {
         mapComponent.focusOnCoordinate(latitude, longitude)
     }
 
-    // --- Station Edit & Delete ---
     function startEditStation(station) {
         window.selectedStationId = station.stationId
         stationDialog.openForEdit(station)
@@ -193,6 +291,42 @@ ApplicationWindow {
         }
         window.syncStationsToDisk()
         mapComponent.requestCanvasRedraw()
+        if (window.currentNavTab === 1) {
+            window.calculateFuturePasses()
+        }
+    }
+
+    function openStationJsonViewer(station) {
+        var json = station.stationJson || ""
+        if (json === "") {
+            json = stationManager.buildStationJson(station)
+        }
+        stationDetailsViewer.stationName = station.name + " (" + station.stationId + ")"
+        stationDetailsViewer.jsonContent = json
+        stationDetailsViewer.open()
+    }
+
+    function deleteSatellite(satId) {
+        for (var i = 0; i < satellitesModel.count; i++) {
+            if (satellitesModel.get(i).satId === satId) {
+                satellitesModel.remove(i)
+                break
+            }
+        }
+        if (window.selectedSatelliteId === satId) {
+            window.selectedSatelliteId = ""
+            if (satellitesModel.count > 0) {
+                var first = satellitesModel.get(0)
+                window.selectSatellite(first.satId, first.latitude, first.longitude, first.altitudeKm, first.name)
+            } else {
+                window.currentSatAltKm = 500.0
+                window.currentSatName = "Default LEO (500 km)"
+            }
+        }
+        mapComponent.requestCanvasRedraw()
+        if (window.currentNavTab === 1) {
+            window.calculateFuturePasses()
+        }
     }
 
     function syncStationsToDisk() {
@@ -225,1178 +359,290 @@ ApplicationWindow {
         stationManager.saveStationsToDisk(list)
     }
 
-    // --- Satellite Edit & Delete ---
-    function startEditSatellite(sat) {
-        window.editingSatId = sat.satId
-        window.showAddSatForm = true
-        window.showAddStationForm = false
-
-        satNameInput.text = sat.name
-        tle1Input.text = sat.tle1 || ""
-        tle2Input.text = sat.tle2 || ""
-
-        window.selectSatellite(sat.satId, sat.latitude, sat.longitude, sat.altitudeKm, sat.name)
-    }
-
-    function deleteSatellite(satId) {
-        for (var i = 0; i < satellitesModel.count; i++) {
-            if (satellitesModel.get(i).satId === satId) {
-                satellitesModel.remove(i)
-                break
+    function getSelectedSatellite() {
+        if (!satellitesModel || satellitesModel.count === 0) return null
+        if (window.selectedSatelliteId !== "") {
+            for (var i = 0; i < satellitesModel.count; i++) {
+                if (satellitesModel.get(i).satId === window.selectedSatelliteId) {
+                    return satellitesModel.get(i)
+                }
             }
         }
-        if (window.selectedSatelliteId === satId) {
-            window.selectedSatelliteId = ""
-            if (satellitesModel.count > 0) {
-                var first = satellitesModel.get(0)
-                window.selectSatellite(first.satId, first.latitude, first.longitude, first.altitudeKm, first.name)
-            } else {
-                window.currentSatAltKm = 500.0
-                window.currentSatName = "Default LEO (500 km)"
+        return satellitesModel.get(0)
+    }
+
+    function getActiveStations() {
+        var list = []
+        for (var s = 0; s < stationsModel.count; s++) {
+            var item = stationsModel.get(s)
+            if (item.active !== false) {
+                list.push({
+                    stationId: item.stationId,
+                    name: item.name,
+                    latitude: item.latitude,
+                    longitude: item.longitude,
+                    altitude: item.altitude || 0,
+                    minElevation: item.minElevation !== undefined ? item.minElevation : 5.0,
+                    gOverT: item.gOverT !== undefined ? item.gOverT : 17.5,
+                    feederLoss: item.feederLoss !== undefined ? item.feederLoss : 0.3,
+                    freqMinMhz: item.freqMinMhz || 0.0,
+                    freqMaxMhz: item.freqMaxMhz || 0.0
+                })
             }
         }
-        if (window.editingSatId === satId) {
-            resetSatFormFields()
+        return list
+    }
+
+    function calculateFuturePasses() {
+        if (!propagator) return
+        var sat = getSelectedSatellite()
+        if (!sat || !sat.tle1 || !sat.tle2) {
+            planningPassResult = null
+            currentPlanningSession = null
+            planningSnrData = null
+            return
         }
-        mapComponent.requestCanvasRedraw()
-    }
 
-    function resetStationFormFields() {
-        window.editingStationId = ""
-        mapComponent.removeDraftMarker()
-        window.pickOnMapActive = false
-        mapComponent.pickModeEnabled = false
-        window.showAddStationForm = false
-    }
+        var stationsToCalc = getActiveStations()
+        if (stationsToCalc.length === 0) {
+            planningPassResult = { totalPasses: 0, multiStationPasses: 0, passes: [] }
+            currentPlanningSession = null
+            planningSnrData = null
+            return
+        }
 
-    function resetSatFormFields() {
-        window.editingSatId = ""
-        satNameInput.text = ""
-        tle1Input.text = ""
-        tle2Input.text = ""
-        window.showAddSatForm = false
-    }
+        isCalculatingPlanning = true
+        var res = propagator.calculatePassWindows(sat.tle1, sat.tle2, stationsToCalc, planningForecastHours, 20.0)
+        planningPassResult = res
+        isCalculatingPlanning = false
 
-    function toggleStationActive(stationId) {
-        for (var i = 0; i < stationsModel.count; i++) {
-            if (stationsModel.get(i).stationId === stationId) {
-                var cur = stationsModel.get(i).active !== false
-                stationsModel.setProperty(i, "active", !cur)
-                window.syncStationsToDisk()
-                mapComponent.requestCanvasRedraw()
-                break
-            }
+        if (res && res.passes && res.passes.length > 0) {
+            currentPlanningSession = res.passes[0]
+            calculatePlanningSnr(res.passes[0])
+        } else {
+            currentPlanningSession = null
+            planningSnrData = null
         }
     }
 
-    function setAllStationsActive(activeState) {
-        for (var i = 0; i < stationsModel.count; i++) {
-            stationsModel.setProperty(i, "active", activeState)
+    function calculatePlanningSnr(passEvent) {
+        if (!propagator || !passEvent) {
+            planningSnrData = null
+            return
         }
-        window.syncStationsToDisk()
-        mapComponent.requestCanvasRedraw()
+        var sat = getSelectedSatellite()
+        if (!sat || !sat.tle1 || !sat.tle2) return
+        var stationsToCalc = getActiveStations()
+        if (stationsToCalc.length === 0) return
+
+        var startIso = passEvent.combinedAosUtc
+        var endIso = passEvent.combinedLosUtc
+
+        var res = propagator.calculatePassSnrProfile(
+            sat.tle1, sat.tle2, stationsToCalc,
+            startIso, endIso,
+            1.0, 33.0, 3.0, 5840.0, 10000.0
+        )
+        planningSnrData = res
     }
 
+    // ================= MAIN APPLICATION LAYOUT (CoolerControl Style) =================
+    // 3 Columns: [1: VerticalNavBar] [2: Contextual List Block] [3: Main Content Area]
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        // ================= LEFT SIDEBAR (Creation & Edit Panels) =================
-        Rectangle {
-            id: leftPanel
+        // ----------------- COLUMN 1: VERTICAL NAVBAR (Width 64) -----------------
+        VerticalNavBar {
+            id: navBar
+            Layout.fillHeight: true
+            currentTab: window.currentNavTab
+            lightMode: window.lightMode
+            currentUtcString: window.currentUtcString
+
+            onTabSelected: (idx) => {
+                window.currentNavTab = idx
+                if (idx === 1 && (!window.planningPassResult || window.planningPassResult.passes.length === 0)) {
+                    window.calculateFuturePasses()
+                }
+            }
+
+            onThemeToggleRequested: {
+                window.lightMode = !window.lightMode
+            }
+        }
+
+        // ----------------- COLUMN 2: CONTEXTUAL LIST BLOCK (Width 350) -----------------
+        Item {
+            id: listBlockContainer
             Layout.fillHeight: true
             Layout.preferredWidth: 350
-            color: window.lightMode ? window.panelLight : window.panelDark
 
-            ScrollView {
+            // TAB 0 LIST BLOCK: Objects (Satellites & Ground Stations)
+            ObjectsListSidebar {
                 anchors.fill: parent
-                contentWidth: availableWidth
-                clip: true
+                visible: window.currentNavTab === 0
+                satellitesModel: satellitesModel
+                stationsModel: stationsModel
+                selectedSatelliteId: window.selectedSatelliteId
+                selectedStationId: window.selectedStationId
+                currentSatAltKm: window.currentSatAltKm
+                lightMode: window.lightMode
 
-                ColumnLayout {
-                    width: parent.width
-                    anchors.margins: 16
-                    spacing: 14
+                onAddSatelliteRequested: satelliteDialog.openForNew()
+                onEditSatelliteRequested: (sat) => satelliteDialog.openForEdit(sat)
+                onDeleteSatelliteRequested: (satId) => window.deleteSatellite(satId)
+                onSatelliteSelected: (satId, lat, lon, altKm, name) => window.selectSatellite(satId, lat, lon, altKm, name)
+                onCalculateSatellitePassesRequested: (satId, name) => {
+                    window.selectedSatelliteId = satId
+                    window.currentNavTab = 1
+                    window.calculateFuturePasses()
+                }
 
-                    Label {
-                        text: qsTr("SatComHub")
-                        font.bold: true
-                        font.pixelSize: 22
-                        color: window.lightMode ? window.textLight : window.textDark
-                    }
-
-                    Label {
-                        text: qsTr("Satellite & Ground Station Monitor")
-                        font.pixelSize: 13
-                        color: window.lightMode ? window.subTextLight : window.subTextDark
-                    }
-
-                    // Live Status & UTC Clock
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Rectangle {
-                            width: 8
-                            height: 8
-                            radius: 4
-                            color: "#40c057"
-                            SequentialAnimation on opacity {
-                                loops: Animation.Infinite
-                                NumberAnimation { from: 1.0; to: 0.3; duration: 800; easing.type: Easing.InOutQuad }
-                                NumberAnimation { from: 0.3; to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
-                            }
-                        }
-
-                        Label {
-                            text: window.currentUtcString
-                            font.pixelSize: 11
-                            font.bold: true
-                            font.family: "monospace"
-                            color: window.lightMode ? "#2b8a3e" : "#51cf66"
-                            Layout.fillWidth: true
+                onAddStationRequested: {
+                    stationDialog.openForCreate()
+                }
+                onEditStationRequested: (st) => window.startEditStation(st)
+                onViewStationJsonRequested: (st) => window.openStationJsonViewer(st)
+                onDeleteStationRequested: (stId) => window.deleteStation(stId)
+                onStationSelected: (stId, lat, lon) => window.selectStation(stId, lat, lon)
+                onStationActiveToggled: (stId, active) => {
+                    for (var i = 0; i < stationsModel.count; i++) {
+                        if (stationsModel.get(i).stationId === stId) {
+                            stationsModel.setProperty(i, "active", active)
+                            break
                         }
                     }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: 1
-                        color: window.lightMode ? window.borderLight : window.borderDark
+                    window.syncStationsToDisk()
+                    mapComponent.requestCanvasRedraw()
+                    if (window.currentNavTab === 1) {
+                        window.calculateFuturePasses()
                     }
+                }
+            }
 
-                    // --- BUTTON 1: Add New Ground Station ---
-                    Button {
-                        id: addStationBtn
-                        Layout.fillWidth: true
-                        height: 38
-                        text: qsTr("📡  Add new station")
+            // TAB 1 LIST BLOCK: Planning (Future Pass Sessions)
+            PlanningListSidebar {
+                anchors.fill: parent
+                visible: window.currentNavTab === 1
+                satellitesModel: satellitesModel
+                stationsModel: stationsModel
+                selectedSatelliteId: window.selectedSatelliteId
+                passResult: window.planningPassResult
+                selectedSession: window.currentPlanningSession
+                isCalculating: window.isCalculatingPlanning
+                lightMode: window.lightMode
+                forecastHours: window.planningForecastHours
 
-                        background: Rectangle {
-                            radius: 8
-                            color: addStationBtn.hovered ? "#1c7ed6" : window.accentColor
-                        }
+                onSessionSelected: (passEvent) => {
+                    window.currentPlanningSession = passEvent
+                    window.calculatePlanningSnr(passEvent)
+                }
 
-                        contentItem: Text {
-                            text: addStationBtn.text
-                            color: "#ffffff"
-                            font.bold: true
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                onRecalculateRequested: window.calculateFuturePasses()
+                onSatelliteChanged: (satId) => {
+                    window.selectedSatelliteId = satId
+                    window.calculateFuturePasses()
+                }
+                onForecastDurationSelected: (hrs) => {
+                    window.planningForecastHours = hrs
+                    window.calculateFuturePasses()
+                }
+            }
 
-                        onClicked: {
-                            stationDialog.openForCreate()
-                        }
-                    }
+            // TAB 2 LIST BLOCK: History (Observation Logs F9)
+            HistoryListSidebar {
+                anchors.fill: parent
+                visible: window.currentNavTab === 2
+                historyModel: historyModel
+                selectedObservation: window.currentHistoricalObservation
+                lightMode: window.lightMode
 
-                    // --- BUTTON 2: Add New Satellite (TLE) ---
-                    Button {
-                        id: toggleAddSatBtn
-                        Layout.fillWidth: true
-                        height: 38
-                        text: window.showAddSatForm
-                              ? (window.editingSatId !== "" ? qsTr("✕  Cancel Editing Satellite") : qsTr("✕  Cancel Satellite"))
-                              : qsTr("🛰️  Add new satellite (TLE)")
+                onObservationSelected: (obs) => {
+                    window.currentHistoricalObservation = obs
+                }
 
-                        background: Rectangle {
-                            radius: 8
-                            color: window.showAddSatForm ? "#e03131" : window.satColor
-                        }
-
-                        contentItem: Text {
-                            text: toggleAddSatBtn.text
-                            color: "#ffffff"
-                            font.bold: true
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        onClicked: {
-                            if (window.showAddSatForm) {
-                                window.resetSatFormFields()
-                            } else {
-                                window.editingSatId = ""
-                                window.showAddSatForm = true
-                                window.showAddStationForm = false
-                                window.resetStationFormFields()
-                            }
-                        }
-                    }
-
-                    // ================= FORM 1: SATELLITE (CREATE / EDIT) =================
-                    Rectangle {
-                        id: addSatBlock
-                        visible: window.showAddSatForm
-                        Layout.fillWidth: true
-                        implicitHeight: satFormLayout.implicitHeight + 28
-                        radius: 10
-                        color: window.lightMode ? window.cardLight : window.cardDark
-                        border.color: window.satColor
-                        border.width: 1
-
-                        ColumnLayout {
-                            id: satFormLayout
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 10
-
-                            Label {
-                                text: window.editingSatId !== "" ? qsTr("✏️ Edit Satellite (" + window.editingSatId + ")") : qsTr("Satellite TLE Configuration")
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: window.satColor
-                            }
-
-                            Label {
-                                text: qsTr("Satellite Name")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: satNameInput
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("e.g. ISS (ZARYA)")
-                                color: window.lightMode ? window.textLight : window.textDark
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: satNameInput.activeFocus ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                            }
-
-                            Label {
-                                text: qsTr("TLE Line 1")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: tle1Input
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("1 25544U 98067A ...")
-                                font.family: "Courier New, monospace"
-                                font.pixelSize: 11
-                                color: window.lightMode ? window.textLight : window.textDark
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: tle1Input.activeFocus ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                            }
-
-                            Label {
-                                text: qsTr("TLE Line 2")
-                                font.pixelSize: 12
-                                color: window.lightMode ? window.textLight : window.textDark
-                            }
-                            TextField {
-                                id: tle2Input
-                                Layout.fillWidth: true
-                                height: 36
-                                placeholderText: qsTr("2 25544 51.64 ...")
-                                font.family: "Courier New, monospace"
-                                font.pixelSize: 11
-                                color: window.lightMode ? window.textLight : window.textDark
-                                background: Rectangle {
-                                    radius: 6
-                                    color: window.lightMode ? "#ffffff" : "#1a1b1e"
-                                    border.color: tle2Input.activeFocus ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
-                                }
-                            }
-
-                            Button {
-                                text: qsTr("Paste Live Sample (ISS)")
-                                Layout.fillWidth: true
-                                height: 30
-                                onClicked: {
-                                    satNameInput.text = "ISS (ZARYA)"
-                                    tle1Input.text = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
-                                    tle2Input.text = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665"
-                                }
-                            }
-
-                            Button {
-                                id: saveSatBtn
-                                Layout.fillWidth: true
-                                height: 38
-                                text: window.editingSatId !== "" ? qsTr("💾  Update Satellite") : qsTr("Calculate Orbit & Place Satellite")
-                                enabled: satNameInput.text.trim().length > 0 && tle1Input.text.trim().length >= 60 && tle2Input.text.trim().length >= 60
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: saveSatBtn.enabled ? "#2f9e44" : (window.lightMode ? "#ced4da" : "#495057")
-                                }
-
-                                contentItem: Text {
-                                    text: saveSatBtn.text
-                                    color: "#ffffff"
-                                    font.bold: true
-                                    font.pixelSize: 13
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                onClicked: {
-                                    var name = satNameInput.text.trim()
-                                    var l1 = tle1Input.text.trim()
-                                    var l2 = tle2Input.text.trim()
-
-                                    var prop = propagator.propagateTle(l1, l2, 0.0)
-                                    if (prop.valid) {
-                                        var tracks = propagator.computeOrbitTracks(l1, l2, 0.75)
-
-                                        if (window.editingSatId !== "") {
-                                            // Update existing satellite
-                                            for (var s = 0; s < satellitesModel.count; s++) {
-                                                if (satellitesModel.get(s).satId === window.editingSatId) {
-                                                    satellitesModel.setProperty(s, "name", name)
-                                                    satellitesModel.setProperty(s, "tle1", l1)
-                                                    satellitesModel.setProperty(s, "tle2", l2)
-                                                    satellitesModel.setProperty(s, "latitude", prop.latitude)
-                                                    satellitesModel.setProperty(s, "longitude", prop.longitude)
-                                                    satellitesModel.setProperty(s, "altitudeKm", prop.altitudeKm)
-                                                    satellitesModel.setProperty(s, "visibilityRadiusMeters", prop.visibilityRadiusMeters)
-                                                    satellitesModel.setProperty(s, "velocityKmS", prop.velocityKmS || 0)
-                                                    satellitesModel.setProperty(s, "trajectory", tracks.current || [])
-                                                    satellitesModel.setProperty(s, "prevTrajectory", tracks.previous || [])
-                                                    satellitesModel.setProperty(s, "nextTrajectory", tracks.next || [])
-                                                    break
-                                                }
-                                            }
-                                            window.selectSatellite(window.editingSatId, prop.latitude, prop.longitude, prop.altitudeKm, name)
-                                        } else {
-                                            // Add new satellite
-                                            var satId = "SAT-" + (satellitesModel.count + 1)
-                                            satellitesModel.append({
-                                                satId: satId,
-                                                name: name,
-                                                tle1: l1,
-                                                tle2: l2,
-                                                latitude: prop.latitude,
-                                                longitude: prop.longitude,
-                                                altitudeKm: prop.altitudeKm,
-                                                visibilityRadiusMeters: prop.visibilityRadiusMeters,
-                                                velocityKmS: prop.velocityKmS || 0,
-                                                trajectory: tracks.current || [],
-                                                prevTrajectory: tracks.previous || [],
-                                                nextTrajectory: tracks.next || []
-                                            })
-                                            window.selectSatellite(satId, prop.latitude, prop.longitude, prop.altitudeKm, name)
-                                        }
-
-                                        mapComponent.focusOnCoordinate(prop.latitude, prop.longitude)
-                                        mapComponent.requestCanvasRedraw()
-                                        window.resetSatFormFields()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Item { Layout.fillHeight: true }
-
-                    Button {
-                        Layout.fillWidth: true
-                        height: 40
-                        text: window.lightMode ? qsTr("🌙  Dark Theme") : qsTr("☀️  Light Theme")
-                        onClicked: window.lightMode = !window.lightMode
-                    }
+                onAddObservationRequested: {
+                    var nextId = "OBS-2026-10-23-0" + (historyModel.count + 1)
+                    var stName = stationsModel.count > 0 ? stationsModel.get(0).name : "Warsaw Primary Hub"
+                    historyModel.insert(0, {
+                        obsId: nextId,
+                        satelliteName: window.currentSatName,
+                        stationName: stName,
+                        dateTimeUtc: propagator.currentUtcIsoString(),
+                        durationFormatted: "9m 45s",
+                        maxSnrDb: 18.5,
+                        meanSnrDb: 11.2,
+                        maxElevationDeg: 54.2,
+                        status: "Decoded",
+                        decodedFrames: 1120,
+                        totalFrames: 1145,
+                        operator: "SP3PUT Ground Team",
+                        notes: "Live pass telemetry logged via SatComHub F9 observation manager."
+                    })
+                    window.currentHistoricalObservation = historyModel.get(0)
                 }
             }
         }
 
-        // ================= CENTER MAP VIEW =================
-        MapComponent {
-            id: mapComponent
+        // ----------------- COLUMN 3: MAIN AREA (Takes remaining width) -----------------
+        Item {
+            id: mainAreaContainer
             Layout.fillWidth: true
             Layout.fillHeight: true
-            stationsModel: stationsModel
-            satellitesModel: satellitesModel
-            selectedStationId: window.selectedStationId
-            selectedSatelliteId: window.selectedSatelliteId
-            targetSatelliteAltitudeKm: window.currentSatAltKm
 
-            onMarkerSelected: (id, name) => {
-                window.selectedStationId = id
-                window.selectedSatelliteId = ""
-            }
-
-            onSatelliteSelected: (id, name) => {
-                window.selectedSatelliteId = id
-                window.selectedStationId = ""
-            }
-
-            onCoordinatePicked: (lat, lon) => {
-                window.pickOnMapActive = false
-                mapComponent.pickModeEnabled = false
-                mapComponent.focusOnCoordinate(lat, lon)
-                stationDialog.setCoordinates(lat, lon)
-                stationDialog.open()
-            }
-        }
-
-        // ================= RIGHT PANEL (List of Satellites & Stations / Pass Windows F5) =================
-        Rectangle {
-            id: rightPanel
-            Layout.fillHeight: true
-            Layout.preferredWidth: 380
-            color: window.lightMode ? window.panelLight : window.panelDark
-
-            property int currentTab: 0 // 0 = Fleet & Stations, 1 = Pass Windows (F5)
-
-            ColumnLayout {
+            // TAB 0 MAIN AREA: Map Component
+            MapComponent {
+                id: mapComponent
                 anchors.fill: parent
-                anchors.margins: 12
-                spacing: 10
+                visible: window.currentNavTab === 0
+                stationsModel: stationsModel
+                satellitesModel: satellitesModel
+                selectedStationId: window.selectedStationId
+                selectedSatelliteId: window.selectedSatelliteId
+                targetSatelliteAltitudeKm: window.currentSatAltKm
 
-                // Top View Switcher (Tabs)
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: 38
-                    radius: 8
-                    color: window.lightMode ? "#e9ecef" : "#1a1b1e"
-                    border.color: window.lightMode ? "#dee2e6" : "#2c2e33"
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 3
-                        spacing: 4
-
-                        Button {
-                            id: tabFleetBtn
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: qsTr("🛰️ Network Fleet")
-                            background: Rectangle {
-                                radius: 6
-                                color: rightPanel.currentTab === 0
-                                       ? (window.lightMode ? "#ffffff" : "#25262b")
-                                       : "transparent"
-                                border.color: rightPanel.currentTab === 0
-                                              ? (window.lightMode ? "#ced4da" : "#373a40")
-                                              : "transparent"
-                            }
-                            contentItem: Text {
-                                text: tabFleetBtn.text
-                                color: rightPanel.currentTab === 0
-                                       ? (window.lightMode ? window.textLight : "#ffffff")
-                                       : (window.lightMode ? window.subTextLight : window.subTextDark)
-                                font.bold: rightPanel.currentTab === 0
-                                font.pixelSize: 11
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: rightPanel.currentTab = 0
-                        }
-
-                        Button {
-                            id: tabPassesBtn
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: qsTr("📅 Pass Windows (F5)")
-                            background: Rectangle {
-                                radius: 6
-                                color: rightPanel.currentTab === 1
-                                       ? (window.lightMode ? "#ffffff" : "#25262b")
-                                       : "transparent"
-                                border.color: rightPanel.currentTab === 1
-                                              ? (window.lightMode ? "#ced4da" : "#373a40")
-                                              : "transparent"
-                            }
-                            contentItem: Text {
-                                text: tabPassesBtn.text
-                                color: rightPanel.currentTab === 1
-                                       ? (window.lightMode ? "#1971c2" : "#4dabf7")
-                                       : (window.lightMode ? window.subTextLight : window.subTextDark)
-                                font.bold: rightPanel.currentTab === 1
-                                font.pixelSize: 11
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: rightPanel.currentTab = 1
-                        }
-                    }
+                onMarkerSelected: (id, name) => {
+                    window.selectedStationId = id
+                    window.selectedSatelliteId = ""
                 }
 
-                // --- TAB 0: Fleet & Stations ---
-                ColumnLayout {
-                    id: fleetViewCol
-                    visible: rightPanel.currentTab === 0
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 12
-
-                    // --- SATELLITES HEADER ---
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Label {
-                            text: qsTr("Tracked Satellites")
-                            font.bold: true
-                            font.pixelSize: 16
-                            color: window.satColor
-                            Layout.fillWidth: true
-                        }
-                        Rectangle {
-                            width: satCountText.implicitWidth + 14
-                            height: 22
-                            radius: 11
-                            color: window.satColor
-                            Text {
-                                id: satCountText
-                                anchors.centerIn: parent
-                                text: String(satellitesModel.count)
-                                color: "#ffffff"
-                                font.bold: true
-                                font.pixelSize: 11
-                            }
-                        }
-                    }
-
-                    ListView {
-                        id: satellitesListView
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(contentHeight, 200)
-                        clip: true
-                        spacing: 6
-                        model: satellitesModel
-
-                        delegate: Rectangle {
-                            width: satellitesListView.width
-                            implicitHeight: satCardContent.implicitHeight + 16
-                            radius: 8
-
-                            property bool isSelected: window.selectedSatelliteId === model.satId
-
-                            color: isSelected ? (window.lightMode ? "#fff3bf" : "#372c15") : (window.lightMode ? window.cardLight : window.cardDark)
-                            border.color: isSelected ? window.satColor : (window.lightMode ? window.borderLight : window.borderDark)
-                            border.width: isSelected ? 2 : 1
-
-                            RowLayout {
-                                id: satCardContent
-                                anchors.fill: parent
-                                anchors.margins: 8
-                                spacing: 8
-
-                                Text {
-                                    text: "🛰️"
-                                    font.pixelSize: 18
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-
-                                    Label {
-                                        text: model.name
-                                        font.bold: true
-                                        font.pixelSize: 13
-                                        color: isSelected ? window.satColor : (window.lightMode ? window.textLight : window.textDark)
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Label {
-                                        property string latDir: model.latitude >= 0 ? "°N" : "°S"
-                                        property string lonDir: model.longitude >= 0 ? "°E" : "°W"
-                                        text: Math.abs(model.latitude).toFixed(2) + latDir + ", " + Math.abs(model.longitude).toFixed(2) + lonDir
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        font.family: "monospace"
-                                        color: isSelected ? window.satColor : (window.lightMode ? "#1971c2" : "#4dabf7")
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Label {
-                                        text: "Alt: " + Math.round(model.altitudeKm) + " km • Range: " + Math.round(model.visibilityRadiusMeters / 1000) + " km" + (model.velocityKmS ? " • " + model.velocityKmS.toFixed(2) + " km/s" : "")
-                                        font.pixelSize: 10
-                                        color: window.lightMode ? window.subTextLight : window.subTextDark
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                // Quick Calculate Pass Windows Button (F5)
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    text: "📅"
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: window.lightMode ? "#e7f5ff" : "#182842"
-                                    }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("Calculate Pass Windows (F5)")
-                                    onClicked: {
-                                        window.selectSatellite(model.satId, model.latitude, model.longitude, model.altitudeKm, model.name)
-                                        rightPanel.currentTab = 1
-                                    }
-                                }
-
-                                // Quick Edit Button
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    text: "✏️"
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: window.lightMode ? "#e9ecef" : "#373a40"
-                                    }
-                                    onClicked: window.startEditSatellite(model)
-                                }
-
-                                // Quick Delete Button
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    text: "🗑️"
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: "#fa5252"
-                                    }
-                                    contentItem: Text {
-                                        text: "🗑️"
-                                        color: "#ffffff"
-                                        font.pixelSize: 12
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    onClicked: window.deleteSatellite(model.satId)
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                z: -1
-                                onClicked: window.selectSatellite(model.satId, model.latitude, model.longitude, model.altitudeKm, model.name)
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: 1
-                        color: window.lightMode ? window.borderLight : window.borderDark
-                    }
-
-                    // --- GROUND STATIONS HEADER ---
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Label {
-                            text: qsTr("Ground Stations")
-                            font.bold: true
-                            font.pixelSize: 16
-                            color: window.lightMode ? window.textLight : window.textDark
-                            Layout.fillWidth: true
-                        }
-
-                        // Active status badge
-                        Rectangle {
-                            property int activeCount: {
-                                var c = 0
-                                for (var i = 0; i < stationsModel.count; i++) {
-                                    if (stationsModel.get(i).active !== false) c++
-                                }
-                                return c
-                            }
-                            width: activeCountText.implicitWidth + 14
-                            height: 22
-                            radius: 11
-                            color: activeCount > 0 ? "#2b8a3e" : "#868e96"
-                            Text {
-                                id: activeCountText
-                                anchors.centerIn: parent
-                                text: parent.activeCount + "/" + stationsModel.count + " Active"
-                                color: "#ffffff"
-                                font.bold: true
-                                font.pixelSize: 10
-                            }
-                        }
-
-                        // Quick Toggle All
-                        Button {
-                            height: 22
-                            implicitWidth: 32
-                            text: qsTr("All")
-                            background: Rectangle {
-                                radius: 4
-                                color: window.lightMode ? "#e9ecef" : "#373a40"
-                            }
-                            contentItem: Text {
-                                text: parent.text
-                                font.pixelSize: 10
-                                font.bold: true
-                                color: window.lightMode ? "#1971c2" : "#74c0fc"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: window.setAllStationsActive(true)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Set all stations as Active")
-                        }
-
-                        Button {
-                            height: 22
-                            implicitWidth: 38
-                            text: qsTr("None")
-                            background: Rectangle {
-                                radius: 4
-                                color: window.lightMode ? "#e9ecef" : "#373a40"
-                            }
-                            contentItem: Text {
-                                text: parent.text
-                                font.pixelSize: 10
-                                font.bold: true
-                                color: window.lightMode ? "#868e96" : "#adb5bd"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: window.setAllStationsActive(false)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Set all stations as Passive")
-                        }
-
-                        Button {
-                            id: openStationsFolderBtn
-                            height: 22
-                            implicitWidth: 26
-                            flat: true
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Open local stations folder in Explorer")
-                            ToolTip.delay: 300
-                            background: Rectangle {
-                                radius: 4
-                                color: openStationsFolderBtn.hovered ? (window.lightMode ? "#dee2e6" : "#373a40") : (window.lightMode ? "#e9ecef" : "#25262b")
-                            }
-                            contentItem: Text {
-                                text: "📁"
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: stationManager.openStationsFolder()
-                        }
-                    }
-
-                    ListView {
-                        id: stationsListView
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        spacing: 8
-                        model: stationsModel
-
-                        delegate: Rectangle {
-                            id: stationCard
-                            width: stationsListView.width
-                            implicitHeight: cardContent.implicitHeight + 16
-                            radius: 8
-
-                            property bool isSelected: window.selectedStationId === model.stationId
-                            property bool isActive: model.active !== false
-
-                            opacity: isActive ? 1.0 : 0.68
-
-                            color: isSelected
-                                   ? (window.lightMode ? "#e7f5ff" : "#182842")
-                                   : (window.lightMode ? window.cardLight : window.cardDark)
-
-                            border.color: isSelected ? window.accentColor : (window.lightMode ? window.borderLight : window.borderDark)
-                            border.width: isSelected ? 2 : 1
-
-                            RowLayout {
-                                id: cardContent
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 8
-
-                                Rectangle {
-                                    width: 34
-                                    height: 34
-                                    radius: 17
-                                    color: stationCard.isSelected
-                                           ? window.accentColor
-                                           : (stationCard.isActive ? (window.lightMode ? "#dee2e6" : "#373a40") : (window.lightMode ? "#e9ecef" : "#2c2e33"))
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "📡"
-                                        font.pixelSize: 15
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 3
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 6
-
-                                        Label {
-                                            text: model.name
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            color: stationCard.isSelected
-                                                   ? window.accentColor
-                                                   : (window.lightMode ? window.textLight : window.textDark)
-                                            elide: Text.ElideRight
-                                            Layout.fillWidth: true
-                                        }
-
-                                        // Active / Passive Toggle Pill
-                                        Button {
-                                            id: stActiveBtn
-                                            property bool isStActive: model.active !== false
-                                            height: 22
-                                            implicitWidth: togglePillText.implicitWidth + 14
-                                            background: Rectangle {
-                                                radius: 11
-                                                color: stActiveBtn.isStActive
-                                                       ? (window.lightMode ? "#d3f9d8" : "#143a1e")
-                                                       : (window.lightMode ? "#f1f3f5" : "#1a1b1e")
-                                                border.color: stActiveBtn.isStActive ? "#40c057" : (window.lightMode ? "#ced4da" : "#373a40")
-                                                border.width: 1
-                                            }
-                                            contentItem: RowLayout {
-                                                spacing: 3
-                                                anchors.centerIn: parent
-                                                Text {
-                                                    text: stActiveBtn.isStActive ? "🟢" : "⚪"
-                                                    font.pixelSize: 7
-                                                }
-                                                Text {
-                                                    id: togglePillText
-                                                    text: stActiveBtn.isStActive ? qsTr("Active") : qsTr("Passive")
-                                                    font.bold: true
-                                                    font.pixelSize: 10
-                                                    color: stActiveBtn.isStActive
-                                                           ? (window.lightMode ? "#2b8a3e" : "#51cf66")
-                                                           : (window.lightMode ? "#868e96" : "#adb5bd")
-                                                }
-                                            }
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: stActiveBtn.isStActive
-                                                          ? qsTr("Active for session calculation. Click to make Passive.")
-                                                          : qsTr("Passive (excluded). Click to make Active.")
-                                            onClicked: {
-                                                window.toggleStationActive(model.stationId)
-                                            }
-                                        }
-                                    }
-
-                                    // RF Badges (Band, Pol, G/T)
-                                    RowLayout {
-                                        spacing: 4
-                                        Rectangle {
-                                            height: 16
-                                            width: bandBadgeText.implicitWidth + 8
-                                            radius: 3
-                                            color: window.lightMode ? "#e7f5ff" : "#182842"
-                                            border.color: window.accentColor
-                                            border.width: 1
-                                            Text {
-                                                id: bandBadgeText
-                                                anchors.centerIn: parent
-                                                text: model.operatingBand ? model.operatingBand : "C-band"
-                                                font.pixelSize: 9
-                                                font.bold: true
-                                                color: window.accentColor
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            height: 16
-                                            width: polBadgeText.implicitWidth + 8
-                                            radius: 3
-                                            color: window.lightMode ? "#f8f9fa" : "#2c2e33"
-                                            Text {
-                                                id: polBadgeText
-                                                anchors.centerIn: parent
-                                                text: model.polarization ? model.polarization : "RHCP"
-                                                font.pixelSize: 9
-                                                color: window.lightMode ? "#495057" : "#adb5bd"
-                                            }
-                                        }
-
-                                        Label {
-                                            text: (model.gOverT !== undefined ? ("G/T: " + Number(model.gOverT).toFixed(1) + " dB/K") : "")
-                                            font.pixelSize: 10
-                                            font.bold: true
-                                            color: "#40c057"
-                                            visible: model.gOverT !== undefined
-                                        }
-                                    }
-
-                                    Label {
-                                        text: model.stationId + " • " + (model.minElevation !== undefined ? model.minElevation : 5) + "° Mask: " + Math.round(mapComponent.calculateStationSatVisibilityRadius(window.currentSatAltKm, (model.minElevation !== undefined ? model.minElevation : 5)) / 1000) + " km"
-                                        font.pixelSize: 11
-                                        color: stationCard.isSelected ? window.accentColor : (window.lightMode ? window.subTextLight : window.subTextDark)
-                                        font.bold: stationCard.isSelected
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Label {
-                                        text: Number(model.latitude).toFixed(3) + "°, " + Number(model.longitude).toFixed(3) + "°" + (model.systemNoiseTempK ? (" • Tsys: " + Number(model.systemNoiseTempK).toFixed(0) + " K") : "")
-                                        font.pixelSize: 11
-                                        color: window.lightMode ? window.subTextLight : window.subTextDark
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                // View JSON Document Button
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: window.lightMode ? "#e9ecef" : "#373a40"
-                                    }
-                                    contentItem: Text {
-                                        text: "{ }"
-                                        color: window.accentColor
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("View Station JSON Document")
-                                    onClicked: {
-                                        var json = model.stationJson
-                                        if (!json || json.length === 0) {
-                                            json = stationManager.buildStationJson(model)
-                                        }
-                                        stationDetailsViewer.stationName = model.name + " (" + model.stationId + ")"
-                                        stationDetailsViewer.jsonContent = json
-                                        stationDetailsViewer.open()
-                                    }
-                                }
-
-                                // Quick Edit Button
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    text: "✏️"
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: window.lightMode ? "#e9ecef" : "#373a40"
-                                    }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("Edit Ground Station")
-                                    onClicked: window.startEditStation(model)
-                                }
-
-                                // Quick Delete Button
-                                Button {
-                                    width: 28
-                                    height: 28
-                                    text: "🗑️"
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: "#fa5252"
-                                    }
-                                    contentItem: Text {
-                                        text: "🗑️"
-                                        color: "#ffffff"
-                                        font.pixelSize: 12
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("Delete Ground Station")
-                                    onClicked: window.deleteStation(model.stationId)
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                z: -1
-                                onClicked: {
-                                    window.selectStation(model.stationId, model.latitude, model.longitude)
-                                }
-                            }
-                        }
-                    }
-
-                    // --- FUTURE SESSION CALCULATION ACTION CARD ---
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: calcActionCol.implicitHeight + 18
-                        radius: 8
-                        color: window.lightMode ? "#e7f5ff" : "#112238"
-                        border.color: window.lightMode ? "#a5d8ff" : "#1c7ed6"
-                        border.width: 1
-
-                        ColumnLayout {
-                            id: calcActionCol
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Text {
-                                    text: "⚡"
-                                    font.pixelSize: 15
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 1
-
-                                    Label {
-                                        text: qsTr("Future Session Window (F5)")
-                                        font.bold: true
-                                        font.pixelSize: 12
-                                        color: window.lightMode ? "#1971c2" : "#74c0fc"
-                                    }
-
-                                    Label {
-                                        property int activeCount: {
-                                            var c = 0
-                                            for (var i = 0; i < stationsModel.count; i++) {
-                                                if (stationsModel.get(i).active !== false) c++
-                                            }
-                                            return c
-                                        }
-                                        text: activeCount > 0
-                                              ? qsTr("%1 active station(s) selected for passes").arg(activeCount)
-                                              : qsTr("⚠️ No active stations selected")
-                                        font.pixelSize: 10
-                                        color: activeCount > 0 ? (window.lightMode ? "#40c057" : "#51cf66") : "#fa5252"
-                                        font.bold: true
-                                    }
-                                }
-                            }
-
-                            Button {
-                                id: calcSessionBtn
-                                Layout.fillWidth: true
-                                height: 36
-                                property int activeCount: {
-                                    var c = 0
-                                    for (var i = 0; i < stationsModel.count; i++) {
-                                        if (stationsModel.get(i).active !== false) c++
-                                    }
-                                    return c
-                                }
-                                enabled: activeCount > 0
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: calcSessionBtn.enabled
-                                           ? (calcSessionBtn.down ? "#1864ab" : (window.lightMode ? "#228be6" : "#1c7ed6"))
-                                           : (window.lightMode ? "#e9ecef" : "#2c2e33")
-                                    border.color: calcSessionBtn.enabled ? "transparent" : (window.lightMode ? "#ced4da" : "#373a40")
-                                }
-
-                                contentItem: RowLayout {
-                                    spacing: 6
-                                    anchors.centerIn: parent
-                                    Text {
-                                        text: "🚀"
-                                        font.pixelSize: 13
-                                    }
-                                    Text {
-                                        text: calcSessionBtn.enabled
-                                              ? qsTr("Calculate Future Sessions (%1 active)").arg(calcSessionBtn.activeCount)
-                                              : qsTr("Select Active Station to Calculate")
-                                        color: calcSessionBtn.enabled ? "#ffffff" : (window.lightMode ? "#adb5bd" : "#5c5f66")
-                                        font.bold: true
-                                        font.pixelSize: 12
-                                    }
-                                }
-
-                                onClicked: {
-                                    rightPanel.currentTab = 1
-                                    passWindowCalculator.calculatePasses()
-                                }
-                            }
-                        }
-                    }
+                onSatelliteSelected: (id, name) => {
+                    window.selectedSatelliteId = id
+                    window.selectedStationId = ""
                 }
 
-                // --- TAB 1: Pass Windows (F5) ---
-                PassWindowCalculator {
-                    id: passWindowCalculator
-                    visible: rightPanel.currentTab === 1
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    satellitesModel: satellitesModel
-                    stationsModel: stationsModel
-                    selectedSatelliteId: window.selectedSatelliteId
-                    selectedStationId: window.selectedStationId
-                    propagator: propagator
-                    lightMode: window.lightMode
-
-                    onSnrPlotRequested: (snrData) => {
-                        snrPlotModal.snrProfileData = snrData
-                    }
-
-                    onPassSelected: (passEvent) => {
-                        if (passEvent.stationPasses && passEvent.stationPasses.length > 0) {
-                            var stName = passEvent.stationPasses[0].stationName
-                            for (var s = 0; s < stationsModel.count; s++) {
-                                if (stationsModel.get(s).name === stName) {
-                                    window.selectStation(stationsModel.get(s).stationId, stationsModel.get(s).latitude, stationsModel.get(s).longitude)
-                                    break
-                                }
-                            }
-                        }
-                    }
-
-                    onSatelliteSelected: (satId, satName) => {
-                        for (var i = 0; i < satellitesModel.count; i++) {
-                            if (satellitesModel.get(i).satId === satId) {
-                                var sat = satellitesModel.get(i)
-                                window.selectSatellite(sat.satId, sat.latitude, sat.longitude, sat.altitudeKm, sat.name)
-                                break
-                            }
-                        }
-                    }
-
-                    onStationSelected: (stationId, stationName) => {
-                        for (var s = 0; s < stationsModel.count; s++) {
-                            if (stationsModel.get(s).stationId === stationId) {
-                                var st = stationsModel.get(s)
-                                window.selectStation(st.stationId, st.latitude, st.longitude)
-                                break
-                            }
-                        }
-                    }
+                onCoordinatePicked: (lat, lon) => {
+                    window.pickOnMapActive = false
+                    mapComponent.pickModeEnabled = false
+                    mapComponent.focusOnCoordinate(lat, lon)
+                    stationDialog.setCoordinates(lat, lon)
+                    stationDialog.open()
                 }
+            }
+
+            // TAB 1 MAIN AREA: Planning Session Details View
+            PlanningSessionDetailsView {
+                id: planningDetailsView
+                anchors.fill: parent
+                visible: window.currentNavTab === 1
+                sessionEvent: window.currentPlanningSession
+                snrProfileData: window.planningSnrData
+                lightMode: window.lightMode
+            }
+
+            // TAB 2 MAIN AREA: History Observation Details View
+            HistoryDetailsView {
+                id: historyDetailsView
+                anchors.fill: parent
+                visible: window.currentNavTab === 2
+                observationData: window.currentHistoricalObservation
+                lightMode: window.lightMode
             }
         }
     }
 
-    function updateMarkerPreview() {
-        if (window.isResettingForm) return
-
-        var lat = parseFloat(latInput.text)
-        var lon = parseFloat(lonInput.text)
-        var alt = parseFloat(altInput.text) || 0
-        var name = stationNameInput.text.trim()
-        if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
-            mapComponent.setDraftMarker(lat, lon, alt, name || (window.editingStationId !== "" ? name : qsTr("New Station (Unsaved)")))
-            mapComponent.focusOnCoordinate(lat, lon)
-        } else {
-            mapComponent.removeDraftMarker()
-        }
-    }
-
+    // ================= INITIAL DATA SETUP =================
     Component.onCompleted: {
         // Load persisted ground stations if available
         var saved = stationManager.loadStationsFromDisk()
@@ -1406,7 +652,7 @@ ApplicationWindow {
                 stationsModel.append(saved[s])
             }
         } else {
-            // Initial Ground Stations with rich RF configurations & band presets
+            // Sample Ground Stations with rich RF configurations
             var sampleStations = [
                 {
                     stationId: "GS-01",
@@ -1420,8 +666,8 @@ ApplicationWindow {
                     operatingBand: "C-band",
                     polarization: "RHCP",
                     antennaGain: 38.5,
-                    lnaNf: 0.70,
-                    feederLoss: 0.30,
+                    lnaNf: 0.7,
+                    feederLoss: 0.3,
                     freqMinMhz: 4000.0,
                     freqMaxMhz: 8000.0,
                     maxChannelWidthMhz: 4000.0,
@@ -1432,54 +678,32 @@ ApplicationWindow {
                 },
                 {
                     stationId: "GS-02",
-                    name: "Gdansk Coastal Relay",
-                    latitude: 54.3520,
-                    longitude: 18.6466,
-                    altitude: 110.0,
+                    name: "Krakow Auxiliary Station",
+                    latitude: 50.0647,
+                    longitude: 19.9450,
+                    altitude: 240.0,
                     altitudeSpecified: true,
                     mobility: "Stationary",
                     minElevation: 5.0,
-                    operatingBand: "S-band",
-                    polarization: "LHCP",
-                    antennaGain: 30.0,
-                    lnaNf: 0.85,
+                    operatingBand: "C-band",
+                    polarization: "RHCP",
+                    antennaGain: 40.0,
+                    lnaNf: 0.65,
                     feederLoss: 0.25,
-                    freqMinMhz: 2000.0,
-                    freqMaxMhz: 4000.0,
-                    maxChannelWidthMhz: 2000.0,
-                    totalNoiseFigureDb: 1.1,
-                    systemNoiseTempK: 133.6,
-                    gOverT: 8.74,
+                    freqMinMhz: 4000.0,
+                    freqMaxMhz: 8000.0,
+                    maxChannelWidthMhz: 4000.0,
+                    totalNoiseFigureDb: 0.9,
+                    systemNoiseTempK: 118.0,
+                    gOverT: 19.28,
                     active: true
                 },
                 {
                     stationId: "GS-03",
-                    name: "Krakow Southern Node",
-                    latitude: 50.0647,
-                    longitude: 19.9450,
-                    altitude: 380.0,
-                    altitudeSpecified: true,
-                    mobility: "Stationary",
-                    minElevation: 5.0,
-                    operatingBand: "Ku-band",
-                    polarization: "Linear",
-                    antennaGain: 48.0,
-                    lnaNf: 0.90,
-                    feederLoss: 0.40,
-                    freqMinMhz: 12000.0,
-                    freqMaxMhz: 18000.0,
-                    maxChannelWidthMhz: 6000.0,
-                    totalNoiseFigureDb: 1.3,
-                    systemNoiseTempK: 151.2,
-                    gOverT: 26.21,
-                    active: true
-                },
-                {
-                    stationId: "GS-04",
-                    name: "Wroclaw West Link",
-                    latitude: 51.1079,
-                    longitude: 17.0385,
-                    altitude: 175.0,
+                    name: "Gdansk Coastal Station",
+                    latitude: 54.3520,
+                    longitude: 18.6466,
+                    altitude: 35.0,
                     altitudeSpecified: true,
                     mobility: "Stationary",
                     minElevation: 5.0,
@@ -1529,5 +753,35 @@ ApplicationWindow {
             window.selectedSatelliteId = "SAT-01"
             mapComponent.focusOnCoordinate(prop.latitude, prop.longitude)
         }
+
+        // Initial Sample Satellite 2 (POLYITAN-3-PUT)
+        var polyL1 = "1 99999U 24001A   26290.50000000  .00005000  00000+0  10000-3 0  9990"
+        var polyL2 = "2 99999  97.4000 120.0000 0012000  90.0000 270.0000 15.15000000012345"
+        var propPoly = propagator.propagateTle(polyL1, polyL2, 0.0)
+        if (propPoly.valid) {
+            var tracksPoly = propagator.computeOrbitTracks(polyL1, polyL2, 0.75)
+            satellitesModel.append({
+                satId: "SAT-02",
+                name: "POLYITAN-3-PUT (LEO)",
+                tle1: polyL1,
+                tle2: polyL2,
+                latitude: propPoly.latitude,
+                longitude: propPoly.longitude,
+                altitudeKm: propPoly.altitudeKm,
+                visibilityRadiusMeters: propPoly.visibilityRadiusMeters,
+                velocityKmS: propPoly.velocityKmS || 0,
+                trajectory: tracksPoly.current || [],
+                prevTrajectory: tracksPoly.previous || [],
+                nextTrajectory: tracksPoly.next || []
+            })
+        }
+
+        // Set initial historical observation
+        if (historyModel.count > 0) {
+            window.currentHistoricalObservation = historyModel.get(0)
+        }
+
+        // Trigger initial future pass prediction
+        window.calculateFuturePasses()
     }
 }

@@ -12,10 +12,10 @@ Item {
     signal zoomInRequested()
     signal zoomOutRequested()
 
-    // Floating Projection Switcher
+    // Floating Projection Switcher in Main Block (Top-Right)
     Rectangle {
         anchors.top: parent.top
-        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: 16
         height: 40
         radius: 8

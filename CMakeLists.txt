@@ -53,6 +53,13 @@ qt_add_qml_module(appsatcomhub
         qml/components/CompactDoubleSpinBox.qml
         qml/components/StationDialog.qml
         qml/components/StationJsonViewer.qml
+        qml/components/VerticalNavBar.qml
+        qml/components/SatelliteDialog.qml
+        qml/components/ObjectsListSidebar.qml
+        qml/components/PlanningListSidebar.qml
+        qml/components/PlanningSessionDetailsView.qml
+        qml/components/HistoryListSidebar.qml
+        qml/components/HistoryDetailsView.qml
     RESOURCES
         resources/marker.svg
         resources/earth_equirectangular.jpg
