@@ -13,14 +13,15 @@ class StationManager : public QObject {
 public:
     explicit StationManager(QObject *parent = nullptr);
 
-    // Computes derived RF and noise parameters using Friis noise formula & band presets
+    // Computes derived RF and noise parameters using Friis noise formula, dish size estimation & band presets
     Q_INVOKABLE QVariantMap computeDerivedParameters(
         const QString &band,
         double lnaNfDb,
         double feederLossDb,
         double antennaGainDbi,
         double customFMinMhz = 0.0,
-        double customFMaxMhz = 0.0
+        double customFMaxMhz = 0.0,
+        double antennaSkyNoiseK = 40.0
     );
 
     // Generates a formatted JSON document string from a station map

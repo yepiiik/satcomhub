@@ -12,6 +12,10 @@
 #include <QUrl>
 #include <cmath>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -75,7 +79,8 @@ QVariantMap StationManager::computeDerivedParameters(
     double feederLossDb,
     double antennaGainDbi,
     double customFMinMhz,
-    double customFMaxMhz)
+    double customFMaxMhz,
+    double antennaSkyNoiseK)
 {
     QVariantMap res;
 
@@ -85,7 +90,23 @@ QVariantMap StationManager::computeDerivedParameters(
     getBandFrequencies(band, customFMinMhz, customFMaxMhz, fMinMhz, fMaxMhz);
     double maxChannelWidthMhz = std::max(0.0, fMaxMhz - fMinMhz);
 
-    // 2. Friis Noise Calculations:
+    // 2. Average Frequency & Wavelength
+    double fAvgMhz = (fMinMhz + fMaxMhz) / 2.0;
+    if (fAvgMhz <= 0.0) fAvgMhz = 4000.0;
+    const double c = 299792458.0; // speed of light in m/s
+    double wavelength = c / (fAvgMhz * 1e6); // in meters
+
+    // 3. Dish Diameter (D) [m] from antenna gain and avg frequency (aperture efficiency eta = 0.55)
+    // G_lin = eta * (pi * D / lambda)^2  =>  D = (lambda / pi) * sqrt(G_lin / eta)
+    const double eta = 0.55;
+    double gLinear = std::pow(10.0, antennaGainDbi / 10.0);
+    double dishDiameterM = (wavelength / M_PI) * std::sqrt(gLinear / eta);
+    if (dishDiameterM < 0.01) dishDiameterM = 0.01;
+
+    // 4. Half-Power Beamwidth HPBW [deg]: theta ~ 70 * (lambda / D)
+    double beamwidthHpbwDeg = 70.0 * (wavelength / dishDiameterM);
+
+    // 5. Friis Noise Calculations:
     // Total Cascade Noise Figure = LNA NF + Feeder Loss (feeder before LNA)
     double safeLnaNf = std::max(0.0, lnaNfDb);
     double safeLoss = std::max(0.0, feederLossDb);
@@ -99,11 +120,11 @@ QVariantMap StationManager::computeDerivedParameters(
     double receiverNoiseTempK = T0 * (fLinear - 1.0);
     if (receiverNoiseTempK < 0.0) receiverNoiseTempK = 0.0;
 
-    // Clear sky background antenna noise temperature (standard estimate ~50 K for microwave satellite downlinks)
-    const double TantK = 50.0;
+    // Clear sky background antenna noise temperature
+    double TantK = (antennaSkyNoiseK > 0.0) ? antennaSkyNoiseK : 40.0;
     double systemNoiseTempK = receiverNoiseTempK + TantK;
 
-    // 3. Antenna G/T Figure of Merit [dB/K] = G [dBi] - 10 * log10(Tsys)
+    // 6. Antenna G/T Figure of Merit [dB/K] = G [dBi] - 10 * log10(Tsys)
     double gOverT = 0.0;
     if (systemNoiseTempK > 0.0) {
         gOverT = antennaGainDbi - 10.0 * std::log10(systemNoiseTempK);
@@ -113,6 +134,9 @@ QVariantMap StationManager::computeDerivedParameters(
     res["freq_min_mhz"] = std::round(fMinMhz * 100.0) / 100.0;
     res["freq_max_mhz"] = std::round(fMaxMhz * 100.0) / 100.0;
     res["max_channel_width_mhz"] = std::round(maxChannelWidthMhz * 100.0) / 100.0;
+
+    res["dish_diameter_m"] = std::round(dishDiameterM * 100.0) / 100.0;
+    res["beamwidth_hpbw_deg"] = std::round(beamwidthHpbwDeg * 100.0) / 100.0;
 
     res["lna_noise_figure_db"] = std::round(safeLnaNf * 100.0) / 100.0;
     res["feeder_loss_db"] = std::round(safeLoss * 100.0) / 100.0;
@@ -154,7 +178,10 @@ QString StationManager::buildStationJson(const QVariantMap &stationData)
         customFMax = stationData.value("frequency_max_mhz").toDouble();
     }
 
-    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, customFMin, customFMax);
+    double skyNoise = stationData.value("antennaSkyNoiseK", stationData.value("antenna_sky_noise_k", 40.0)).toDouble();
+    if (skyNoise <= 0.0) skyNoise = 40.0;
+
+    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, customFMin, customFMax, skyNoise);
 
     root["version"] = "1.0";
     root["type"] = "ground_station_antenna";
@@ -195,7 +222,48 @@ QString StationManager::buildStationJson(const QVariantMap &stationData)
     rf["g_over_t_db_k"] = derived["g_over_t_db_k"].toDouble();
     root["rf_configuration"] = rf;
 
-    root["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    // Advanced Parameters block
+    bool advOverridden = stationData.value("advancedFieldsOverridden", false).toBool();
+    if (stationData.contains("metadata") && stationData.value("metadata").toMap().contains("advanced_fields_overridden")) {
+        advOverridden = stationData.value("metadata").toMap().value("advanced_fields_overridden").toBool();
+    }
+
+    double dishD = stationData.contains("dishDiameterM") ? stationData.value("dishDiameterM").toDouble()
+                 : (stationData.contains("dish_diameter_m") ? stationData.value("dish_diameter_m").toDouble()
+                 : derived["dish_diameter_m"].toDouble());
+    double hpbw = stationData.contains("beamwidthHpbwDeg") ? stationData.value("beamwidthHpbwDeg").toDouble()
+                : (stationData.contains("beamwidth_hpbw_deg") ? stationData.value("beamwidth_hpbw_deg").toDouble()
+                : derived["beamwidth_hpbw_deg"].toDouble());
+    QString radome = stationData.value("radomeProtection",
+                     stationData.value("radome_protection", "None / Open Air")).toString();
+    QString mount = stationData.value("mountType",
+                    stationData.value("mount_type", "Az-El")).toString();
+    double pointingAcc = stationData.value("pointingAccuracyDeg",
+                         stationData.value("pointing_accuracy_deg", 0.15)).toDouble();
+    double slewRate = stationData.value("maxSlewRateDegS",
+                      stationData.value("max_slew_rate_deg_s", 5.0)).toDouble();
+    double modemLoss = stationData.value("modemImplementationLossDb",
+                       stationData.value("modem_implementation_loss_db", 1.0)).toDouble();
+    QString clutter = stationData.value("environmentClutter",
+                      stationData.value("environment_clutter", "Urban")).toString();
+
+    QJsonObject advObj;
+    advObj["dish_diameter_m"] = std::round(dishD * 100.0) / 100.0;
+    advObj["beamwidth_hpbw_deg"] = std::round(hpbw * 100.0) / 100.0;
+    advObj["radome_protection"] = radome;
+    advObj["mount_type"] = mount;
+    advObj["pointing_accuracy_deg"] = std::round(pointingAcc * 1000.0) / 1000.0;
+    advObj["max_slew_rate_deg_s"] = std::round(slewRate * 10.0) / 10.0;
+    advObj["antenna_sky_noise_k"] = std::round(skyNoise * 10.0) / 10.0;
+    advObj["modem_implementation_loss_db"] = std::round(modemLoss * 100.0) / 100.0;
+    advObj["environment_clutter"] = clutter;
+    root["advanced_parameters"] = advObj;
+
+    // Metadata block
+    QJsonObject metaObj;
+    metaObj["advanced_fields_overridden"] = advOverridden;
+    metaObj["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    root["metadata"] = metaObj;
 
     QJsonDocument doc(root);
     return QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
@@ -318,8 +386,41 @@ QVariantMap StationManager::parseStationJson(const QString &jsonString)
         if (obj.contains("feederLoss")) feederLoss = obj.value("feederLoss").toDouble(0.3);
     }
 
+    // Advanced parameters extraction
+    double dishD = 0.0;
+    double hpbw = 0.0;
+    QString radome = "None / Open Air";
+    QString mount = "Az-El";
+    double pointingAcc = 0.15;
+    double slewRate = 5.0;
+    double skyNoise = 40.0;
+    double modemLoss = 1.0;
+    QString clutter = "Urban";
+    bool advOverridden = false;
+
+    if (obj.contains("advanced_parameters") && obj["advanced_parameters"].isObject()) {
+        QJsonObject adv = obj["advanced_parameters"].toObject();
+        dishD = adv.value("dish_diameter_m").toDouble(0.0);
+        hpbw = adv.value("beamwidth_hpbw_deg").toDouble(0.0);
+        if (adv.contains("radome_protection")) radome = adv.value("radome_protection").toString();
+        if (adv.contains("mount_type")) mount = adv.value("mount_type").toString();
+        pointingAcc = adv.value("pointing_accuracy_deg").toDouble(0.15);
+        slewRate = adv.value("max_slew_rate_deg_s").toDouble(5.0);
+        skyNoise = adv.value("antenna_sky_noise_k").toDouble(40.0);
+        modemLoss = adv.value("modem_implementation_loss_db").toDouble(1.0);
+        if (adv.contains("environment_clutter")) clutter = adv.value("environment_clutter").toString();
+    }
+
+    if (obj.contains("metadata") && obj["metadata"].isObject()) {
+        QJsonObject meta = obj["metadata"].toObject();
+        advOverridden = meta.value("advanced_fields_overridden").toBool(false);
+    }
+
     // Compute derived parameters
-    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, fMinMhz, fMaxMhz);
+    QVariantMap derived = computeDerivedParameters(band, lnaNf, feederLoss, gain, fMinMhz, fMaxMhz, skyNoise);
+
+    if (dishD <= 0.0) dishD = derived["dish_diameter_m"].toDouble();
+    if (hpbw <= 0.0) hpbw = derived["beamwidth_hpbw_deg"].toDouble();
 
     result["valid"] = true;
     result["stationId"] = id;
@@ -343,6 +444,20 @@ QVariantMap StationManager::parseStationJson(const QString &jsonString)
     result["totalNoiseFigureDb"] = derived["total_noise_figure_db"];
     result["systemNoiseTempK"] = derived["system_noise_temp_k"];
     result["gOverT"] = derived["g_over_t_db_k"];
+
+    result["dishDiameterM"] = dishD;
+    result["beamwidthHpbwDeg"] = hpbw;
+    result["radomeProtection"] = radome;
+    result["mountType"] = mount;
+    result["pointingAccuracyDeg"] = pointingAcc;
+    result["maxSlewRateDegS"] = slewRate;
+    result["antennaSkyNoiseK"] = skyNoise;
+    result["modemImplementationLossDb"] = modemLoss;
+    result["environmentClutter"] = clutter;
+    result["advancedFieldsOverridden"] = advOverridden;
+
+    result["estDishDiameterM"] = derived["dish_diameter_m"];
+    result["estBeamwidthHpbwDeg"] = derived["beamwidth_hpbw_deg"];
 
     result["stationJson"] = buildStationJson(result);
 
@@ -491,11 +606,13 @@ QString StationManager::getSampleStationJson(const QString &band)
 
 QString StationManager::getStationsDirectory() const
 {
-    // Ground station configurations are stored in the user's local application data folder,
-    // strictly outside the source code repository.
-    // On Windows, this resolves to %APPDATA%/satcomhub/stations
-    // (e.g. C:/Users/<User>/AppData/Roaming/satcomhub/stations).
-    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString baseDir;
+    QString portablePath = QCoreApplication::applicationDirPath() + "/stations";
+    if (QDir(portablePath).exists()) {
+        return QDir(portablePath).absolutePath();
+    }
+
+    baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (baseDir.isEmpty()) {
         baseDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     }
@@ -503,7 +620,6 @@ QString StationManager::getStationsDirectory() const
         baseDir = QDir::homePath() + "/AppData/Roaming/satcomhub";
     }
 
-    // If Qt produces nested duplicate organization/application directory names
     if (baseDir.endsWith("/satcomhub/satcomhub", Qt::CaseInsensitive)) {
         baseDir = baseDir.left(baseDir.length() - 10);
     }
@@ -581,18 +697,15 @@ bool StationManager::saveStationsToDisk(const QVariantList &stations)
         QString filename = safeId + ".json";
         activeFiles.insert(filename);
 
-        // Save individual station JSON document in stations/
         QString stationJson = buildStationJson(map);
         writeTextFile(dir.filePath(filename), stationJson);
 
-        // Also add to aggregate array
         QJsonDocument doc = QJsonDocument::fromJson(stationJson.toUtf8());
         if (doc.isObject()) {
             arr.append(doc.object());
         }
     }
 
-    // Clean up any obsolete individual station files in stations/
     QStringList existingJsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files);
     for (const QString &file : existingJsonFiles) {
         if (file == "stations.json" || file == "ground_stations.json") continue;
@@ -601,7 +714,6 @@ bool StationManager::saveStationsToDisk(const QVariantList &stations)
         }
     }
 
-    // Save aggregate stations.json as manifest
     QJsonDocument aggDoc(arr);
     writeTextFile(dir.filePath("stations.json"), QString::fromUtf8(aggDoc.toJson(QJsonDocument::Indented)));
 
@@ -619,7 +731,6 @@ QVariantList StationManager::loadStationsFromDisk()
 
     QSet<QString> loadedIds;
 
-    // Scan all individual station JSON files in stations/
     QStringList jsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files, QDir::Name);
 
     for (const QString &file : jsonFiles) {
@@ -638,7 +749,6 @@ QVariantList StationManager::loadStationsFromDisk()
         }
     }
 
-    // If no individual station files were found, check aggregate stations.json
     if (list.isEmpty()) {
         QString aggFile = dir.filePath("stations.json");
         if (!QFile::exists(aggFile)) {

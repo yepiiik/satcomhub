@@ -622,6 +622,7 @@ ApplicationWindow {
                 id: mapComponent
                 anchors.fill: parent
                 visible: window.currentNavTab === 0
+                lightMode: window.lightMode
                 stationsModel: stationsModel
                 satellitesModel: satellitesModel
                 selectedStationId: window.selectedStationId
