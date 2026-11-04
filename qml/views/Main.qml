@@ -48,12 +48,161 @@ ApplicationWindow {
     // History state
     property var currentHistoricalObservation: null
 
+    // Python Factor Modules state
+    property var recentModulesList: []
+    property var pythonEnvInfo: ({ available: true, version: "Python 3", isVenv: false })
+    property string sessionInputJsonPreview: ""
+    property int moduleRunCounter: 0
+
+    // Python Correlation Modules ("Predict Attenuation") state
+    property var recentCorrelationModulesList: []
+    property var recentExcelFilesList: []
+    property string selectedCorrelationModulePath: ""
+    property string selectedExcelFilePath: ""
+    property var pendingCorrelationIndices: []
+
+    ListModel {
+        id: addedPythonModulesModel
+    }
+
+    ListModel {
+        id: stationCorrelationModel
+    }
+
+    ListModel {
+        id: toastsModel
+    }
+
     SatellitePropagator {
         id: propagator
     }
 
     StationManager {
         id: stationManager
+    }
+
+    PythonModuleRunner {
+        id: pythonModuleRunner
+
+        onModuleStarted: (runId, moduleName, modulePath) => {
+            // Update factor module card status
+            for (var i = 0; i < addedPythonModulesModel.count; i++) {
+                if (addedPythonModulesModel.get(i).activeRunId === runId) {
+                    addedPythonModulesModel.setProperty(i, "status", "running")
+                    break
+                }
+            }
+            // Update station correlation card status
+            for (var c = 0; c < stationCorrelationModel.count; c++) {
+                if (stationCorrelationModel.get(c).activeRunId === runId) {
+                    stationCorrelationModel.setProperty(c, "status", "running")
+                    break
+                }
+            }
+            // Add or update toast in stack
+            var foundToast = false
+            for (var t = 0; t < toastsModel.count; t++) {
+                if (toastsModel.get(t).runId === runId) {
+                    toastsModel.setProperty(t, "progress", 0.08)
+                    toastsModel.setProperty(t, "status", "running")
+                    toastsModel.setProperty(t, "statusText", "Starting " + moduleName + "...")
+                    foundToast = true
+                    break
+                }
+            }
+            if (!foundToast) {
+                toastsModel.append({
+                    runId: runId,
+                    moduleName: moduleName,
+                    progress: 0.08,
+                    status: "running",
+                    statusText: "Starting " + moduleName + "..."
+                })
+            }
+        }
+
+        onModuleProgress: (runId, moduleName, progress, statusText) => {
+            for (var t = 0; t < toastsModel.count; t++) {
+                if (toastsModel.get(t).runId === runId) {
+                    toastsModel.setProperty(t, "progress", progress)
+                    toastsModel.setProperty(t, "statusText", statusText)
+                    break
+                }
+            }
+        }
+
+        onModuleFinished: (runId, moduleName, modulePath, success, outputJson, errorMessage) => {
+            var wasFactorModule = false
+            for (var i = 0; i < addedPythonModulesModel.count; i++) {
+                if (addedPythonModulesModel.get(i).activeRunId === runId) {
+                    wasFactorModule = true
+                    addedPythonModulesModel.setProperty(i, "status", success ? "done" : "error")
+                    addedPythonModulesModel.setProperty(i, "outputJson", outputJson || "")
+                    addedPythonModulesModel.setProperty(i, "errorText", errorMessage || "")
+                    addedPythonModulesModel.setProperty(i, "expanded", true)
+                    break
+                }
+            }
+
+            var toastFinalStatus = success ? "done" : "error"
+            var toastFinalMsg = success ? "Completed — Output JSON ready" : ("Error: " + errorMessage)
+
+            for (var c = 0; c < stationCorrelationModel.count; c++) {
+                if (stationCorrelationModel.get(c).activeRunId === runId) {
+                    var corrStatus = success ? "done" : "error"
+                    if (success && outputJson && outputJson.length > 0) {
+                        try {
+                            var parsed = JSON.parse(outputJson)
+                            if (parsed.status !== undefined && Number(parsed.status) !== 0) {
+                                corrStatus = "error"
+                                toastFinalStatus = "error"
+                                toastFinalMsg = parsed.message || "Error in correlation output JSON"
+                            } else if (parsed.message && String(parsed.message).indexOf("Warning:") === 0) {
+                                corrStatus = "warning"
+                                toastFinalMsg = parsed.message
+                            }
+                        } catch (e) {
+                        }
+                    }
+                    stationCorrelationModel.setProperty(c, "status", corrStatus)
+                    stationCorrelationModel.setProperty(c, "outputJson", outputJson || "")
+                    stationCorrelationModel.setProperty(c, "errorText", errorMessage || "")
+                    stationCorrelationModel.setProperty(c, "expanded", true)
+                    break
+                }
+            }
+
+            for (var t = 0; t < toastsModel.count; t++) {
+                if (toastsModel.get(t).runId === runId) {
+                    toastsModel.setProperty(t, "progress", 1.0)
+                    toastsModel.setProperty(t, "status", toastFinalStatus)
+                    toastsModel.setProperty(t, "statusText", toastFinalMsg)
+                    break
+                }
+            }
+
+            window.recentModulesList = pythonModuleRunner.loadRecentModules()
+            window.recentCorrelationModulesList = pythonModuleRunner.loadRecentCorrelationModules()
+            window.recentExcelFilesList = pythonModuleRunner.loadRecentExcelFiles()
+
+            // If factor modules finished and any station correlation predictions were waiting, execute them now
+            if (wasFactorModule && window.pendingCorrelationIndices && window.pendingCorrelationIndices.length > 0) {
+                var anyStillRunning = false
+                for (var k = 0; k < addedPythonModulesModel.count; k++) {
+                    if (addedPythonModulesModel.get(k).status === "running") {
+                        anyStillRunning = true
+                        break
+                    }
+                }
+                if (!anyStillRunning) {
+                    var queued = window.pendingCorrelationIndices.slice()
+                    window.pendingCorrelationIndices = []
+                    for (var q = 0; q < queued.length; q++) {
+                        window.executeStationCorrelationNow(queued[q])
+                    }
+                }
+            }
+        }
     }
 
     // ================= MODAL DIALOGS =================
@@ -429,6 +578,7 @@ ApplicationWindow {
     function calculatePlanningSnr(passEvent) {
         if (!propagator || !passEvent) {
             planningSnrData = null
+            stationCorrelationModel.clear()
             return
         }
         var sat = getSelectedSatellite()
@@ -445,6 +595,226 @@ ApplicationWindow {
             1.0, 33.0, 3.0, 5840.0, 10000.0
         )
         planningSnrData = res
+        // Reset previous session's factor module outputs when switching sessions
+        for (var m = 0; m < addedPythonModulesModel.count; m++) {
+            addedPythonModulesModel.setProperty(m, "status", "ready")
+            addedPythonModulesModel.setProperty(m, "outputJson", "")
+            addedPythonModulesModel.setProperty(m, "errorText", "")
+        }
+        window.syncStationCorrelationModel(passEvent)
+        if (planningDetailsView.showInputJsonPreview) {
+            window.sessionInputJsonPreview = window.buildCurrentSessionInputJson()
+        }
+    }
+
+    function syncStationCorrelationModel(passEvent) {
+        stationCorrelationModel.clear()
+        window.pendingCorrelationIndices = []
+        if (!passEvent) return
+
+        var passes = passEvent.stationPasses || []
+        if (passes.length > 0) {
+            for (var i = 0; i < passes.length; i++) {
+                var sp = passes[i]
+                var stSamples = sp.durationSeconds !== undefined ? (Math.round(Number(sp.durationSeconds)) + 1) : 0
+                stationCorrelationModel.append({
+                    stationId: sp.stationId || ("GS-" + (i + 1)),
+                    stationName: sp.stationName || ("Ground Station " + (i + 1)),
+                    expectedSamples: stSamples,
+                    status: "ready",
+                    activeRunId: "",
+                    inputJson: "",
+                    outputJson: "",
+                    errorText: "",
+                    showInput: false,
+                    expanded: false
+                })
+            }
+        } else {
+            var activeSt = getActiveStations()
+            for (var s = 0; s < activeSt.length; s++) {
+                stationCorrelationModel.append({
+                    stationId: activeSt[s].stationId || ("GS-" + (s + 1)),
+                    stationName: activeSt[s].name || ("Ground Station " + (s + 1)),
+                    expectedSamples: 0,
+                    status: "ready",
+                    activeRunId: "",
+                    inputJson: "",
+                    outputJson: "",
+                    errorText: "",
+                    showInput: false,
+                    expanded: false
+                })
+            }
+        }
+    }
+
+    function executeStationCorrelationNow(stationIdx) {
+        if (stationIdx < 0 || stationIdx >= stationCorrelationModel.count) return
+        var stItem = stationCorrelationModel.get(stationIdx)
+
+        var factorOutputs = []
+        for (var i = 0; i < addedPythonModulesModel.count; i++) {
+            var mod = addedPythonModulesModel.get(i)
+            if (mod.outputJson && mod.outputJson.length > 0) {
+                factorOutputs.push(mod.outputJson)
+            }
+        }
+
+        var expectedSamples = stItem.expectedSamples > 0
+                              ? stItem.expectedSamples
+                              : ((window.planningSnrData && window.planningSnrData.sampleCount)
+                                 ? window.planningSnrData.sampleCount
+                                 : 0)
+
+        var corrInputJson = pythonModuleRunner.buildCorrelationInputJson(
+            stItem.stationName,
+            stItem.stationId,
+            expectedSamples,
+            factorOutputs
+        )
+
+        window.moduleRunCounter += 1
+        var runId = "corr-" + window.moduleRunCounter + "-" + Date.now()
+
+        stationCorrelationModel.setProperty(stationIdx, "activeRunId", runId)
+        stationCorrelationModel.setProperty(stationIdx, "status", "running")
+        stationCorrelationModel.setProperty(stationIdx, "inputJson", corrInputJson)
+
+        pythonModuleRunner.runCorrelationModuleAsync(
+            runId,
+            window.selectedCorrelationModulePath,
+            window.selectedExcelFilePath,
+            stItem.stationName,
+            corrInputJson
+        )
+    }
+
+    function predictStationAttenuationAtIndex(stationIdx) {
+        if (stationIdx < 0 || stationIdx >= stationCorrelationModel.count) return
+        if (!window.currentPlanningSession) return
+
+        // Check if any added factor modules have not been run yet; if so, run them first and queue correlation
+        var needFactorRun = false
+        for (var i = 0; i < addedPythonModulesModel.count; i++) {
+            var mod = addedPythonModulesModel.get(i)
+            if (!mod.outputJson || mod.outputJson.length === 0) {
+                needFactorRun = true
+                if (mod.status !== "running") {
+                    runPythonModuleAtIndex(i)
+                }
+            }
+        }
+
+        if (needFactorRun) {
+            stationCorrelationModel.setProperty(stationIdx, "status", "running")
+            if (window.pendingCorrelationIndices.indexOf(stationIdx) === -1) {
+                var updated = window.pendingCorrelationIndices.slice()
+                updated.push(stationIdx)
+                window.pendingCorrelationIndices = updated
+            }
+        } else {
+            executeStationCorrelationNow(stationIdx)
+        }
+    }
+
+    function predictAllStationsAttenuation() {
+        if (!window.currentPlanningSession) return
+        for (var c = 0; c < stationCorrelationModel.count; c++) {
+            predictStationAttenuationAtIndex(c)
+        }
+    }
+
+    function buildCurrentSessionInputJson() {
+        if (!window.currentPlanningSession) return "{}"
+        var sat = getSelectedSatellite()
+        if (!sat || !sat.tle1 || !sat.tle2) return "{}"
+        var allActiveStations = getActiveStations()
+        var sessionStations = []
+        var passes = window.currentPlanningSession.stationPasses || []
+        if (passes.length > 0) {
+            for (var p = 0; p < passes.length; p++) {
+                var sp = passes[p]
+                for (var a = 0; a < allActiveStations.length; a++) {
+                    var st = allActiveStations[a]
+                    if ((sp.stationId && st.stationId === sp.stationId) ||
+                        (sp.stationName && st.name === sp.stationName)) {
+                        sessionStations.push(st)
+                        break
+                    }
+                }
+            }
+        }
+        if (sessionStations.length === 0) {
+            sessionStations = allActiveStations
+        }
+        return pythonModuleRunner.buildSessionInputJson(
+            sat.tle1,
+            sat.tle2,
+            sessionStations,
+            window.currentPlanningSession.combinedAosUtc,
+            window.currentPlanningSession.combinedLosUtc,
+            1.0
+        )
+    }
+
+    function addPythonModuleToSession(modulePath) {
+        if (!modulePath || modulePath.length === 0) return
+        // Avoid duplicate module path in the active list
+        for (var i = 0; i < addedPythonModulesModel.count; i++) {
+            if (addedPythonModulesModel.get(i).path === modulePath) {
+                return
+            }
+        }
+        var parts = modulePath.replace(/\\/g, "/").split("/")
+        var fileName = parts.length > 0 ? parts[parts.length - 1] : "module.py"
+
+        addedPythonModulesModel.append({
+            name: fileName,
+            path: modulePath,
+            status: "ready",
+            activeRunId: "",
+            outputJson: "",
+            errorText: "",
+            expanded: false
+        })
+
+        window.recentModulesList = pythonModuleRunner.addRecentModule(modulePath)
+    }
+
+    function runPythonModuleAtIndex(idx) {
+        if (idx < 0 || idx >= addedPythonModulesModel.count) return
+        if (!window.currentPlanningSession) return
+
+        var item = addedPythonModulesModel.get(idx)
+        window.moduleRunCounter += 1
+        var runId = "run-" + window.moduleRunCounter + "-" + Date.now()
+
+        addedPythonModulesModel.setProperty(idx, "activeRunId", runId)
+        addedPythonModulesModel.setProperty(idx, "status", "running")
+
+        var inputJson = window.buildCurrentSessionInputJson()
+        window.sessionInputJsonPreview = inputJson
+        pythonModuleRunner.runModuleAsync(runId, item.path, inputJson)
+    }
+
+    function runAllAddedPythonModules() {
+        if (!window.currentPlanningSession) return
+        for (var i = 0; i < addedPythonModulesModel.count; i++) {
+            runPythonModuleAtIndex(i)
+        }
+    }
+
+    function closeToastById(runId) {
+        for (var t = 0; t < toastsModel.count; t++) {
+            if (toastsModel.get(t).runId === runId) {
+                if (toastsModel.get(t).status === "running") {
+                    pythonModuleRunner.cancelModuleRun(runId)
+                }
+                toastsModel.remove(t)
+                break
+            }
+        }
     }
 
     // ================= MAIN APPLICATION LAYOUT (GridLayout: 3 Columns) =================
@@ -656,6 +1026,84 @@ ApplicationWindow {
                 sessionEvent: window.currentPlanningSession
                 snrProfileData: window.planningSnrData
                 lightMode: window.lightMode
+
+                addedModulesModel: addedPythonModulesModel
+                recentModulesList: window.recentModulesList
+                pythonEnvInfo: window.pythonEnvInfo
+                sessionInputJsonPreview: window.sessionInputJsonPreview
+
+                stationCorrelationModel: stationCorrelationModel
+                recentCorrelationModulesList: window.recentCorrelationModulesList
+                recentExcelFilesList: window.recentExcelFilesList
+                selectedCorrelationModulePath: window.selectedCorrelationModulePath
+                selectedExcelFilePath: window.selectedExcelFilePath
+
+                onBrowseModuleRequested: {
+                    var selectedPath = pythonModuleRunner.selectPythonModuleDialog()
+                    if (selectedPath && selectedPath.length > 0) {
+                        window.addPythonModuleToSession(selectedPath)
+                    }
+                }
+
+                onAddRecentModuleRequested: (modulePath) => {
+                    window.addPythonModuleToSession(modulePath)
+                }
+
+                onRemoveAddedModuleRequested: (idx) => {
+                    if (idx >= 0 && idx < addedPythonModulesModel.count) {
+                        var runId = addedPythonModulesModel.get(idx).activeRunId
+                        if (runId && runId.length > 0) {
+                            pythonModuleRunner.cancelModuleRun(runId)
+                        }
+                        addedPythonModulesModel.remove(idx)
+                    }
+                }
+
+                onRunModuleRequested: (idx, modulePath) => {
+                    window.runPythonModuleAtIndex(idx)
+                }
+
+                onRunAllModulesRequested: {
+                    window.runAllAddedPythonModules()
+                }
+
+                onGenerateInputJsonPreviewRequested: {
+                    window.sessionInputJsonPreview = window.buildCurrentSessionInputJson()
+                }
+
+                onBrowseCorrelationModuleRequested: {
+                    var corrPath = pythonModuleRunner.selectPythonModuleDialog()
+                    if (corrPath && corrPath.length > 0) {
+                        window.recentCorrelationModulesList = pythonModuleRunner.addRecentCorrelationModule(corrPath)
+                        window.selectedCorrelationModulePath = corrPath
+                    }
+                }
+
+                onCorrelationModuleSelected: (modulePath) => {
+                    window.selectedCorrelationModulePath = modulePath
+                    window.recentCorrelationModulesList = pythonModuleRunner.addRecentCorrelationModule(modulePath)
+                }
+
+                onBrowseExcelFileRequested: {
+                    var exPath = pythonModuleRunner.selectExcelFileDialog()
+                    if (exPath && exPath.length > 0) {
+                        window.recentExcelFilesList = pythonModuleRunner.addRecentExcelFile(exPath)
+                        window.selectedExcelFilePath = exPath
+                    }
+                }
+
+                onExcelFileSelected: (excelPath) => {
+                    window.selectedExcelFilePath = excelPath
+                    window.recentExcelFilesList = pythonModuleRunner.addRecentExcelFile(excelPath)
+                }
+
+                onPredictStationAttenuationRequested: (stationIdx) => {
+                    window.predictStationAttenuationAtIndex(stationIdx)
+                }
+
+                onPredictAllStationsAttenuationRequested: {
+                    window.predictAllStationsAttenuation()
+                }
             }
 
             // TAB 2 MAIN AREA: History Observation Details View
@@ -749,8 +1197,36 @@ ApplicationWindow {
         }
     }
 
+    // ================= STACKING TOAST PROGRESS OVERLAY (BOTTOM-RIGHT) =================
+    ToastStackOverlay {
+        id: toastStackOverlay
+        lightMode: window.lightMode
+        toastsModel: toastsModel
+
+        onToastCloseRequested: (runId) => {
+            window.closeToastById(runId)
+        }
+    }
+
     // ================= INITIAL DATA SETUP =================
     Component.onCompleted: {
+        // Detect Python environment & load recent/discovered factor and correlation modules
+        window.pythonEnvInfo = pythonModuleRunner.detectPythonEnvironment()
+        window.recentModulesList = pythonModuleRunner.loadRecentModules()
+        if (window.recentModulesList && window.recentModulesList.length > 0 && addedPythonModulesModel.count === 0) {
+            window.addPythonModuleToSession(window.recentModulesList[0].path)
+        }
+
+        window.recentCorrelationModulesList = pythonModuleRunner.loadRecentCorrelationModules()
+        if (window.recentCorrelationModulesList && window.recentCorrelationModulesList.length > 0) {
+            window.selectedCorrelationModulePath = window.recentCorrelationModulesList[0].path
+        }
+
+        window.recentExcelFilesList = pythonModuleRunner.loadRecentExcelFiles()
+        if (window.recentExcelFilesList && window.recentExcelFilesList.length > 0) {
+            window.selectedExcelFilePath = window.recentExcelFilesList[0].path
+        }
+
         // Load persisted ground stations if available
         var saved = stationManager.loadStationsFromDisk()
         if (saved && saved.length > 0) {

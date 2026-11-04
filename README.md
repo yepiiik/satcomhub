@@ -6,42 +6,165 @@ The main purpose of the software is to generate Session Plan file that will be e
 
 # 1. How to install
 
-# 2. Next
+# 2. JSON as input for module
+
 
 ```json
 {
-    "coordinates": [
-        [55.7558, 37.6173, 1000],
-        [55.7558, 37.6173, 1000]
+    "satellite_session": [
+        {"utc_time": "04-11-2026 11:45:20", "longitude": 52.51523, "latitiude": 15.52351, "altitude": 1435.3}, // altitude in kilometers
+        {"utc_time": "04-11-2026 11:45:21", "longitude": 52.51153, "latitiude": 15.52805, "altitude": 1435.2},
+    ],
+    "ground_stations_list": [
+        {
+            "advanced_parameters": {
+                "antenna_sky_noise_k": 40,
+                "beamwidth_hpbw_deg": 1.3,
+                "dish_diameter_m": 2.77,
+                "environment_clutter": "Urban",
+                "max_slew_rate_deg_s": 5,
+                "modem_implementation_loss_db": 1,
+                "mount_type": "Az-El",
+                "pointing_accuracy_deg": 0.15,
+                "radome_protection": "None / Open Air"
+            },
+            "coordinates": {
+                "altitude_m": 150,
+                "altitude_specified": true,
+                "latitude": 52.40200864122514,
+                "longitude": 16.95146925905013
+            },
+            "metadata": {
+                "advanced_fields_overridden": false,
+                "created_at": "2026-11-04T12:56:02Z"
+            },
+            "min_elevation_deg": 5,
+            "mobility": "Stationary",
+            "name": "Piotrowo C-band",
+            "rf_configuration": {
+                "antenna_gain_dbi": 42,
+                "antenna_noise_temp_k": 40,
+                "feeder_loss_db": 5,
+                "frequency_max_ghz": 5.85,
+                "frequency_max_mhz": 5850,
+                "frequency_min_ghz": 5.849,
+                "frequency_min_mhz": 5849,
+                "g_over_t_db_k": 7.77,
+                "lna_noise_figure_db": 5,
+                "max_channel_width_ghz": 0.001,
+                "max_channel_width_mhz": 1,
+                "operating_band": "C-band",
+                "polarization": "RHCP",
+                "receiver_noise_temp_k": 2610,
+                "system_noise_temp_k": 2650,
+                "total_noise_figure_db": 10
+            },
+            "stationId": "GS-01",
+            "type": "ground_station_antenna",
+            "version": "1.0"
+        },
+        {
+            "advanced_parameters": {
+                "antenna_sky_noise_k": 40,
+                "beamwidth_hpbw_deg": 1.3,
+                "dish_diameter_m": 2.77,
+                "environment_clutter": "Urban",
+                "max_slew_rate_deg_s": 5,
+                "modem_implementation_loss_db": 1,
+                "mount_type": "Az-El",
+                "pointing_accuracy_deg": 0.15,
+                "radome_protection": "None / Open Air"
+            },
+            "coordinates": {
+                "altitude_m": 150,
+                "altitude_specified": true,
+                "latitude": 52.40200864122514,
+                "longitude": 16.95146925905013
+            },
+            "metadata": {
+                "advanced_fields_overridden": false,
+                "created_at": "2026-11-04T12:56:02Z"
+            },
+            "min_elevation_deg": 5,
+            "mobility": "Stationary",
+            "name": "Piotrowo C-band",
+            "rf_configuration": {
+                "antenna_gain_dbi": 42,
+                "antenna_noise_temp_k": 40,
+                "feeder_loss_db": 5,
+                "frequency_max_ghz": 5.85,
+                "frequency_max_mhz": 5850,
+                "frequency_min_ghz": 5.849,
+                "frequency_min_mhz": 5849,
+                "g_over_t_db_k": 7.77,
+                "lna_noise_figure_db": 5,
+                "max_channel_width_ghz": 0.001,
+                "max_channel_width_mhz": 1,
+                "operating_band": "C-band",
+                "polarization": "RHCP",
+                "receiver_noise_temp_k": 2610,
+                "system_noise_temp_k": 2650,
+                "total_noise_figure_db": 10
+            },
+            "stationId": "GS-01",
+            "type": "ground_station_antenna",
+            "version": "1.0"
+        }
     ]
 }
 ```
+
+# 3. JSON as output from module
 ```json
-[
-    {
-        "factors": [
-            {
-                "name": "Air temperature",
-                "unit": "celsius",
-                "values": [-30, -20, -10, 0, 10, 20, 30, 40, 50]
-            },
-            {
-                "name": "Humidity",
-                "unit": "percent",
-                "values": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-            }
-        ],
-        "attenuation": []
-    },
-    {
-        "factors": [
-            {
-                "name": "Distance",
-                "unit": "km",
-                "values": [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
-            }
-        ],
-        "attenuation": []
-    }
-]
+{
+    "module_name": "Rain_Attenuation",
+    "version": 1.0,
+    "factor_name": "rain_density",
+    "units": "mm/m^2",
+    "ground_stations_session_values": [
+        {
+            "ground_station_name": "Piotrowo C-band",
+            "stationId": "GS-01",
+            "samples_count": 2,
+            "session_values": [
+                {"utc_time": "04-11-2026 11:45:20", "value": 23},
+                {"utc_time": "04-11-2026 11:45:21", "value": 23}
+            ]
+        }
+    ]
+}
+```
+
+# 4. Main program attenuation correlation
+After getting all the factors, program can use third-party modules such as pre-trained Random Forest to predict attenuation based on provided factors at each moment of the session. 
+
+## The scema for the input of correlation module:
+```json
+{
+    "ground_station_name": "Piotrowo C-band", // For each station calculating separately
+    "samples_count": 420,
+    "factors_list": [
+        {
+            "factor_name": "Rain_density",
+            "factor_units": "mm/m^2",
+            "values": [0,0,0,0,0] // Length must be equal to sample_count
+        },
+        {
+            "factor_name": "Ground_Station_Wind_Speed",
+            "factor_units": "km/h",
+            "values": [0,0,0,0,0] // Length must be equal to sample_count
+        },
+    ]
+}
+```
+
+## The schema for the output of correlation module:
+
+```json
+{
+    "total_attenuation_db_list": [0.000, 0.002, 0.151, 0.166], // Length must be equal to sample_count
+    "sample_count": 420,
+    "status": 0,
+    "message": "Finished"
+}
 ```
