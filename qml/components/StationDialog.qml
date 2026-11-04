@@ -44,6 +44,18 @@ Popup {
     property real calcRecNoiseTemp: 75.1
     property real calcSysNoiseTemp: 125.1
     property real calcGOverT: 17.5
+    property real calcEstDishDiameter: 2.72
+    property real calcEstBeamwidth: 1.94
+
+    // Advanced Mode state
+    property bool advancedMode: false
+    property bool advancedFieldsOverridden: false
+    property bool dishDiameterUserModified: false
+    property bool beamwidthUserModified: false
+    property bool pointingUserModified: false
+    property bool slewUserModified: false
+    property bool skyNoiseUserModified: false
+    property bool modemLossUserModified: false
 
     // Imported station preview
     property var importedStationData: null
@@ -576,6 +588,325 @@ Popup {
                     }
                 }
 
+                // ================= 9. ADVANCED MODE TOGGLE & OPTIONAL PARAMETERS =================
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 42
+                    radius: 8
+                    color: root.advancedMode
+                           ? (root.lightMode ? "#e7f5ff" : "#182842")
+                           : (root.lightMode ? "#f8f9fa" : "#141517")
+                    border.color: root.advancedMode
+                                  ? root.accentColor
+                                  : (root.lightMode ? "#dee2e6" : "#2c2e33")
+                    border.width: 1
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+
+                        Text {
+                            text: "⚙️"
+                            font.pixelSize: 14
+                        }
+
+                        Label {
+                            text: qsTr("Advanced Mode (Optional Parameters for ML & Modeling)")
+                            font.bold: true
+                            font.pixelSize: 12
+                            color: root.advancedMode
+                                   ? (root.lightMode ? "#1864ab" : "#74c0fc")
+                                   : (root.lightMode ? "#495057" : "#ced4da")
+                            Layout.fillWidth: true
+                        }
+
+                        Rectangle {
+                            width: 38
+                            height: 22
+                            radius: 11
+                            color: root.advancedMode ? root.accentColor : (root.lightMode ? "#ced4da" : "#373a40")
+
+                            Rectangle {
+                                width: 16
+                                height: 16
+                                radius: 8
+                                color: "#ffffff"
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: root.advancedMode ? (parent.width - width - 3) : 3
+
+                                Behavior on x {
+                                    NumberAnimation { duration: 150 }
+                                }
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.advancedMode = !root.advancedMode
+                    }
+                }
+
+                // Advanced Mode Fields Container
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: root.advancedMode
+                    spacing: 12
+
+                    // Row A: Dish Diameter & HPBW Beamwidth & Antenna Sky Noise
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        CompactDoubleSpinBox {
+                            id: dishDiameterSpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Dish Diameter (D)")
+                            suffix: " m"
+                            from: 0.05
+                            to: 100.0
+                            stepSize: 0.1
+                            decimals: 2
+                            value: root.calcEstDishDiameter
+                            isEstimated: !root.dishDiameterUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.dishDiameterUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                            }
+                        }
+
+                        CompactDoubleSpinBox {
+                            id: beamwidthSpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Beamwidth (HPBW)")
+                            suffix: "°"
+                            from: 0.01
+                            to: 180.0
+                            stepSize: 0.05
+                            decimals: 2
+                            value: root.calcEstBeamwidth
+                            isEstimated: !root.beamwidthUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.beamwidthUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                            }
+                        }
+
+                        CompactDoubleSpinBox {
+                            id: skyNoiseSpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Antenna Sky Noise")
+                            suffix: " K"
+                            from: 1.0
+                            to: 500.0
+                            stepSize: 1.0
+                            decimals: 1
+                            value: 40.0
+                            isEstimated: !root.skyNoiseUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.skyNoiseUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                                root.recalculateParameters()
+                            }
+                        }
+                    }
+
+                    // Row B: Mount Type & Pointing Accuracy & Max Slew Rate
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("Mount Type")
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: root.lightMode ? "#495057" : "#ced4da"
+                            }
+
+                            ComboBox {
+                                id: mountTypeCombo
+                                Layout.fillWidth: true
+                                height: 34
+                                model: ["Az-El", "X-Y", "Fixed"]
+                                currentIndex: 0
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: root.lightMode ? "#ffffff" : "#1a1b1e"
+                                    border.color: root.lightMode ? "#ced4da" : "#373a40"
+                                }
+
+                                contentItem: Text {
+                                    leftPadding: 10
+                                    text: mountTypeCombo.displayText
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.lightMode ? "#212529" : "#ffffff"
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                onActivated: root.advancedFieldsOverridden = true
+                            }
+                        }
+
+                        CompactDoubleSpinBox {
+                            id: pointingAccuracySpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Pointing Accuracy")
+                            suffix: "°"
+                            from: 0.001
+                            to: 10.0
+                            stepSize: 0.01
+                            decimals: 3
+                            value: 0.150
+                            isEstimated: !root.pointingUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.pointingUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                            }
+                        }
+
+                        CompactDoubleSpinBox {
+                            id: maxSlewRateSpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Max Slew Rate")
+                            suffix: " deg/s"
+                            from: 0.1
+                            to: 100.0
+                            stepSize: 0.5
+                            decimals: 1
+                            value: 5.0
+                            isEstimated: !root.slewUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.slewUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                            }
+                        }
+                    }
+
+                    // Row C: Radome Protection & Modem Implementation Loss & Environment Clutter
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("Radome Protection")
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: root.lightMode ? "#495057" : "#ced4da"
+                            }
+
+                            ComboBox {
+                                id: radomeProtectionCombo
+                                Layout.fillWidth: true
+                                height: 34
+                                model: ["None / Open Air", "Dry Radome", "Unknown"]
+                                currentIndex: 0
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: root.lightMode ? "#ffffff" : "#1a1b1e"
+                                    border.color: root.lightMode ? "#ced4da" : "#373a40"
+                                }
+
+                                contentItem: Text {
+                                    leftPadding: 10
+                                    text: radomeProtectionCombo.displayText
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.lightMode ? "#212529" : "#ffffff"
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                onActivated: root.advancedFieldsOverridden = true
+                            }
+                        }
+
+                        CompactDoubleSpinBox {
+                            id: modemLossSpinBox
+                            Layout.fillWidth: true
+                            label: qsTr("Modem Imp. Loss")
+                            suffix: " dB"
+                            from: 0.0
+                            to: 10.0
+                            stepSize: 0.1
+                            decimals: 2
+                            value: 1.00
+                            isEstimated: !root.modemLossUserModified
+                            lightMode: root.lightMode
+                            accentColor: root.accentColor
+                            onValueModified: {
+                                root.modemLossUserModified = true
+                                root.advancedFieldsOverridden = true
+                                isEstimated = false
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("Environment Clutter")
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: root.lightMode ? "#495057" : "#ced4da"
+                            }
+
+                            ComboBox {
+                                id: environmentClutterCombo
+                                Layout.fillWidth: true
+                                height: 34
+                                model: ["Urban", "Suburban", "Rural / Open"]
+                                currentIndex: 0
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: root.lightMode ? "#ffffff" : "#1a1b1e"
+                                    border.color: root.lightMode ? "#ced4da" : "#373a40"
+                                }
+
+                                contentItem: Text {
+                                    leftPadding: 10
+                                    text: environmentClutterCombo.displayText
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.lightMode ? "#212529" : "#ffffff"
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                onActivated: root.advancedFieldsOverridden = true
+                            }
+                        }
+                    }
+                }
+
                 // ================= LIVE FRIIS & BAND CALCULATION CARD =================
                 Rectangle {
                     Layout.fillWidth: true
@@ -700,6 +1031,40 @@ Popup {
                                     font.bold: true
                                     font.family: "monospace"
                                     color: "#38d9a9"
+                                }
+                            }
+
+                            // Est. Beamwidth (HPBW)
+                            RowLayout {
+                                spacing: 4
+                                Label {
+                                    text: qsTr("Est. Beamwidth (HPBW):")
+                                    font.pixelSize: 11
+                                    color: root.lightMode ? "#495057" : "#adb5bd"
+                                }
+                                Label {
+                                    text: root.calcEstBeamwidth.toFixed(2) + "°"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    font.family: "monospace"
+                                    color: "#4dabf7"
+                                }
+                            }
+
+                            // Est. Dish Size
+                            RowLayout {
+                                spacing: 4
+                                Label {
+                                    text: qsTr("Est. Dish Size:")
+                                    font.pixelSize: 11
+                                    color: root.lightMode ? "#495057" : "#adb5bd"
+                                }
+                                Label {
+                                    text: root.calcEstDishDiameter.toFixed(2) + " m"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    font.family: "monospace"
+                                    color: "#ffd43b"
                                 }
                             }
                         }
@@ -1183,6 +1548,29 @@ Popup {
         feederLossSpinBox.value = 0.30
         fMinSpinBox.value = 4.000
         fMaxSpinBox.value = 8.000
+
+        // Reset Advanced Mode
+        root.advancedMode = false
+        root.advancedFieldsOverridden = false
+        root.dishDiameterUserModified = false
+        root.beamwidthUserModified = false
+        root.pointingUserModified = false
+        root.slewUserModified = false
+        root.skyNoiseUserModified = false
+        root.modemLossUserModified = false
+
+        radomeProtectionCombo.currentIndex = 0
+        mountTypeCombo.currentIndex = 0
+        pointingAccuracySpinBox.value = 0.150
+        pointingAccuracySpinBox.isEstimated = true
+        maxSlewRateSpinBox.value = 5.0
+        maxSlewRateSpinBox.isEstimated = true
+        skyNoiseSpinBox.value = 40.0
+        skyNoiseSpinBox.isEstimated = true
+        modemLossSpinBox.value = 1.00
+        modemLossSpinBox.isEstimated = true
+        environmentClutterCombo.currentIndex = 0
+
         importTextArea.text = ""
         root.importStatusText = ""
         root.importSuccess = false
@@ -1241,6 +1629,57 @@ Popup {
             fMaxSpinBox.value = Number(station.frequency_max_mhz) / 1000.0
         } else {
             fMaxSpinBox.value = 8.000
+        }
+
+        // Advanced Mode Parameters
+        var overridden = false
+        if (station.advancedFieldsOverridden !== undefined) {
+            overridden = station.advancedFieldsOverridden
+        } else if (station.metadata && station.metadata.advanced_fields_overridden !== undefined) {
+            overridden = station.metadata.advanced_fields_overridden
+        }
+        root.advancedFieldsOverridden = overridden
+        root.dishDiameterUserModified = overridden
+        root.beamwidthUserModified = overridden
+        root.pointingUserModified = overridden
+        root.slewUserModified = overridden
+        root.skyNoiseUserModified = overridden
+        root.modemLossUserModified = overridden
+
+        // Radome
+        var r = station.radomeProtection || station.radome_protection || "None / Open Air"
+        if (r.indexOf("Dry") >= 0) radomeProtectionCombo.currentIndex = 1
+        else if (r.indexOf("Unknown") >= 0) radomeProtectionCombo.currentIndex = 2
+        else radomeProtectionCombo.currentIndex = 0
+
+        // Mount
+        var m = station.mountType || station.mount_type || "Az-El"
+        if (m.indexOf("X-Y") >= 0) mountTypeCombo.currentIndex = 1
+        else if (m.indexOf("Fixed") >= 0) mountTypeCombo.currentIndex = 2
+        else mountTypeCombo.currentIndex = 0
+
+        // Clutter
+        var c = station.environmentClutter || station.environment_clutter || "Urban"
+        if (c.indexOf("Suburban") >= 0) environmentClutterCombo.currentIndex = 1
+        else if (c.indexOf("Rural") >= 0 || c.indexOf("Open") >= 0) environmentClutterCombo.currentIndex = 2
+        else environmentClutterCombo.currentIndex = 0
+
+        pointingAccuracySpinBox.value = Number(station.pointingAccuracyDeg || station.pointing_accuracy_deg) || 0.150
+        pointingAccuracySpinBox.isEstimated = !overridden
+        maxSlewRateSpinBox.value = Number(station.maxSlewRateDegS || station.max_slew_rate_deg_s) || 5.0
+        maxSlewRateSpinBox.isEstimated = !overridden
+        skyNoiseSpinBox.value = Number(station.antennaSkyNoiseK || station.antenna_sky_noise_k) || 40.0
+        skyNoiseSpinBox.isEstimated = !overridden
+        modemLossSpinBox.value = Number(station.modemImplementationLossDb || station.modem_implementation_loss_db) || 1.00
+        modemLossSpinBox.isEstimated = !overridden
+
+        if (station.dishDiameterM !== undefined || station.dish_diameter_m !== undefined) {
+            dishDiameterSpinBox.value = Number(station.dishDiameterM || station.dish_diameter_m)
+            dishDiameterSpinBox.isEstimated = !overridden
+        }
+        if (station.beamwidthHpbwDeg !== undefined || station.beamwidth_hpbw_deg !== undefined) {
+            beamwidthSpinBox.value = Number(station.beamwidthHpbwDeg || station.beamwidth_hpbw_deg)
+            beamwidthSpinBox.isEstimated = !overridden
         }
 
         recalculateParameters()
@@ -1321,6 +1760,7 @@ Popup {
 
         var fMinMhz = fMinSpinBox.value * 1000.0
         var fMaxMhz = fMaxSpinBox.value * 1000.0
+        var skyNoise = (skyNoiseSpinBox && skyNoiseSpinBox.value > 0) ? skyNoiseSpinBox.value : 40.0
 
         if (root.stationManager) {
             var der = root.stationManager.computeDerivedParameters(
@@ -1329,7 +1769,8 @@ Popup {
                 feederLossSpinBox.value,
                 gainSpinBox.value,
                 fMinMhz,
-                fMaxMhz
+                fMaxMhz,
+                skyNoise
             )
             root.calcFreqMin = der.freq_min_mhz
             root.calcFreqMax = der.freq_max_mhz
@@ -1338,6 +1779,8 @@ Popup {
             root.calcRecNoiseTemp = der.receiver_noise_temp_k
             root.calcSysNoiseTemp = der.system_noise_temp_k
             root.calcGOverT = der.g_over_t_db_k
+            root.calcEstDishDiameter = der.dish_diameter_m
+            root.calcEstBeamwidth = der.beamwidth_hpbw_deg
         } else {
             // Pure JS fallback
             root.calcFreqMin = fMinMhz
@@ -1346,8 +1789,26 @@ Popup {
             root.calcTotalNf = lnaNfSpinBox.value + feederLossSpinBox.value
             var fLin = Math.pow(10.0, root.calcTotalNf / 10.0)
             root.calcRecNoiseTemp = 290.0 * (fLin - 1.0)
-            root.calcSysNoiseTemp = root.calcRecNoiseTemp + 50.0
+            root.calcSysNoiseTemp = root.calcRecNoiseTemp + skyNoise
             root.calcGOverT = gainSpinBox.value - 10.0 * (Math.log(root.calcSysNoiseTemp) / Math.LN10)
+
+            var fAvgMhz = (fMinMhz + fMaxMhz) / 2.0
+            if (fAvgMhz <= 0) fAvgMhz = 4000.0
+            var wavelength = 299792458.0 / (fAvgMhz * 1e6)
+            var gLinear = Math.pow(10.0, gainSpinBox.value / 10.0)
+            var dM = (wavelength / Math.PI) * Math.sqrt(gLinear / 0.55)
+            root.calcEstDishDiameter = Math.max(0.01, dM)
+            root.calcEstBeamwidth = 70.0 * (wavelength / root.calcEstDishDiameter)
+        }
+
+        // If not manually modified by user, keep the advanced fields synchronized with auto-calculated estimates
+        if (!root.dishDiameterUserModified && dishDiameterSpinBox) {
+            dishDiameterSpinBox.value = root.calcEstDishDiameter
+            dishDiameterSpinBox.isEstimated = true
+        }
+        if (!root.beamwidthUserModified && beamwidthSpinBox) {
+            beamwidthSpinBox.value = root.calcEstBeamwidth
+            beamwidthSpinBox.isEstimated = true
         }
     }
 
@@ -1376,7 +1837,19 @@ Popup {
             maxChannelWidthMhz: root.calcMaxChannelWidth,
             totalNoiseFigureDb: root.calcTotalNf,
             systemNoiseTempK: root.calcSysNoiseTemp,
-            gOverT: root.calcGOverT
+            gOverT: root.calcGOverT,
+
+            // Advanced Mode Parameters
+            dishDiameterM: dishDiameterSpinBox ? dishDiameterSpinBox.value : root.calcEstDishDiameter,
+            beamwidthHpbwDeg: beamwidthSpinBox ? beamwidthSpinBox.value : root.calcEstBeamwidth,
+            radomeProtection: radomeProtectionCombo ? radomeProtectionCombo.currentText : "None / Open Air",
+            mountType: mountTypeCombo ? mountTypeCombo.currentText : "Az-El",
+            pointingAccuracyDeg: pointingAccuracySpinBox ? pointingAccuracySpinBox.value : 0.150,
+            maxSlewRateDegS: maxSlewRateSpinBox ? maxSlewRateSpinBox.value : 5.0,
+            antennaSkyNoiseK: skyNoiseSpinBox ? skyNoiseSpinBox.value : 40.0,
+            modemImplementationLossDb: modemLossSpinBox ? modemLossSpinBox.value : 1.00,
+            environmentClutter: environmentClutterCombo ? environmentClutterCombo.currentText : "Urban",
+            advancedFieldsOverridden: root.advancedFieldsOverridden
         }
 
         if (root.stationManager) {

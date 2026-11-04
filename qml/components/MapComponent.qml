@@ -18,6 +18,7 @@ Item {
     property real minElevationDeg: 5.0 // Operational elevation mask (standard 5 deg)
     property bool pickModeEnabled: false
     property string projectionMode: "mercator" // "mercator" or "equirectangular"
+    property bool lightMode: false
 
     // Draft marker state (new/unsaved station)
     property bool hasDraft: false
@@ -136,6 +137,7 @@ Item {
         id: controlsOverlay
         projectionMode: root.projectionMode
         pickModeEnabled: root.pickModeEnabled
+        lightMode: root.lightMode
 
         onProjectionSelected: (mode) => {
             root.projectionMode = mode
@@ -155,6 +157,44 @@ Item {
                 mercatorView.zoomOut()
             } else {
                 equiView.zoomOut()
+            }
+        }
+
+        onRecenterRequested: () => {
+            if (root.selectedStationId !== "") {
+                for (var i = 0; i < root.stationsModel.count; i++) {
+                    var st = root.stationsModel.get(i)
+                    if (st.stationId === root.selectedStationId) {
+                        if (root.projectionMode === "mercator") {
+                            mercatorView.focusOnCoordinate(st.latitude, st.longitude, 5)
+                        } else {
+                            equiView.equiZoomScale = equiView.minZoomScale
+                            equiView.focusOnCoordinate(st.latitude, st.longitude)
+                        }
+                        return
+                    }
+                }
+            } else if (root.selectedSatelliteId !== "") {
+                for (var j = 0; j < root.satellitesModel.count; j++) {
+                    var sat = root.satellitesModel.get(j)
+                    if (sat.satId === root.selectedSatelliteId) {
+                        if (root.projectionMode === "mercator") {
+                            mercatorView.focusOnCoordinate(sat.latitude, sat.longitude, 3.5)
+                        } else {
+                            equiView.equiZoomScale = equiView.minZoomScale
+                            equiView.focusOnCoordinate(sat.latitude, sat.longitude)
+                        }
+                        return
+                    }
+                }
+            }
+
+            // Overview / Default recenter (fit world overview)
+            if (root.projectionMode === "mercator") {
+                mercatorView.focusOnCoordinate(30.0, 15.0, 3)
+            } else {
+                equiView.equiZoomScale = equiView.minZoomScale
+                equiView.focusOnCoordinate(0.0, 0.0)
             }
         }
     }

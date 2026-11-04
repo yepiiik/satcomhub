@@ -18,7 +18,7 @@ Popup {
 
     anchors.centerIn: Overlay.overlay
     width: Math.min(Overlay.overlay ? Overlay.overlay.width - 40 : 580, 600)
-    height: Math.min(Overlay.overlay ? Overlay.overlay.height - 40 : 540, 560)
+    height: Math.min(Overlay.overlay ? Overlay.overlay.height - 40 : 440, 460)
     padding: 0
 
     background: Rectangle {
@@ -26,6 +26,31 @@ Popup {
         color: satDialogRoot.lightMode ? "#ffffff" : "#141720"
         border.color: satDialogRoot.lightMode ? "#ced4da" : "#2d3345"
         border.width: 1
+    }
+
+    // Exit cross button positioned in the exact top right corner
+    Button {
+        id: closeCrossBtn
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 12
+        anchors.rightMargin: 12
+        width: 32
+        height: 32
+        z: 99
+        background: Rectangle {
+            radius: 6
+            color: closeCrossBtn.hovered ? (satDialogRoot.lightMode ? "#e9ecef" : "#2c3245") : "transparent"
+        }
+        contentItem: Text {
+            text: "✕"
+            font.bold: true
+            font.pixelSize: 15
+            color: satDialogRoot.lightMode ? "#495057" : "#adb5bd"
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        onClicked: satDialogRoot.close()
     }
 
     function openForNew() {
@@ -54,6 +79,7 @@ Popup {
         // ================= HEADER =================
         RowLayout {
             Layout.fillWidth: true
+            Layout.rightMargin: 36
             spacing: 10
 
             Rectangle {
@@ -88,25 +114,6 @@ Popup {
                     color: satDialogRoot.lightMode ? "#6c757d" : "#909296"
                 }
             }
-
-            // Close cross button
-            Button {
-                width: 32
-                height: 32
-                background: Rectangle {
-                    radius: 8
-                    color: parent.hovered ? (satDialogRoot.lightMode ? "#e9ecef" : "#2c3245") : "transparent"
-                }
-                contentItem: Text {
-                    text: "✕"
-                    font.bold: true
-                    font.pixelSize: 15
-                    color: satDialogRoot.lightMode ? "#495057" : "#adb5bd"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: satDialogRoot.close()
-            }
         }
 
         Rectangle {
@@ -117,12 +124,14 @@ Popup {
 
         // ================= INPUT FIELDS =================
         ScrollView {
+            id: satScrollView
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            contentWidth: availableWidth
 
             ColumnLayout {
-                width: parent.width
+                width: satScrollView.availableWidth
                 spacing: 12
 
                 // Satellite Name
@@ -298,15 +307,16 @@ Popup {
             spacing: 10
 
             Button {
+                id: cancelBtn
                 height: 38
-                width: 90
+                Layout.preferredWidth: 90
                 text: qsTr("Cancel")
                 background: Rectangle {
                     radius: 6
                     color: satDialogRoot.lightMode ? "#e9ecef" : "#252b3b"
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: cancelBtn.text
                     font.bold: true
                     font.pixelSize: 12
                     color: satDialogRoot.lightMode ? "#495057" : "#ced4da"
@@ -315,8 +325,6 @@ Popup {
                 }
                 onClicked: satDialogRoot.close()
             }
-
-            Item { Layout.fillWidth: true }
 
             Button {
                 id: commitBtn

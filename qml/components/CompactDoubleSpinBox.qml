@@ -16,6 +16,7 @@ Item {
 
     property bool isOptional: false
     property bool optionalEnabled: true
+    property bool isEstimated: false
 
     property bool lightMode: false
     property color accentColor: "#228be6"
@@ -42,40 +43,34 @@ Item {
                 color: (!root.isOptional || root.optionalEnabled)
                        ? (root.lightMode ? "#495057" : "#ced4da")
                        : (root.lightMode ? "#adb5bd" : "#6c757d")
-                Layout.fillWidth: true
                 elide: Text.ElideRight
             }
 
-            // Checkbox for optional fields (e.g. Alt)
-            RowLayout {
+            // Checkbox for optional fields (e.g. Alt) placed directly after label
+            CheckBox {
+                id: optCheck
                 visible: root.isOptional
-                spacing: 3
-                CheckBox {
-                    id: optCheck
-                    checked: root.optionalEnabled
-                    onCheckedChanged: root.optionalEnabled = checked
-                    indicator: Rectangle {
-                        implicitWidth: 14
-                        implicitHeight: 14
-                        radius: 3
-                        color: optCheck.checked ? root.accentColor : "transparent"
-                        border.color: optCheck.checked ? root.accentColor : (root.lightMode ? "#adb5bd" : "#5c5f66")
-                        Text {
-                            anchors.centerIn: parent
-                            text: "✓"
-                            font.pixelSize: 10
-                            font.bold: true
-                            color: "#ffffff"
-                            visible: optCheck.checked
-                        }
+                checked: root.optionalEnabled
+                onCheckedChanged: root.optionalEnabled = checked
+                padding: 0
+                indicator: Rectangle {
+                    implicitWidth: 14
+                    implicitHeight: 14
+                    radius: 3
+                    color: optCheck.checked ? root.accentColor : "transparent"
+                    border.color: optCheck.checked ? root.accentColor : (root.lightMode ? "#adb5bd" : "#5c5f66")
+                    Text {
+                        anchors.centerIn: parent
+                        text: "✓"
+                        font.pixelSize: 10
+                        font.bold: true
+                        color: "#ffffff"
+                        visible: optCheck.checked
                     }
                 }
-                Label {
-                    text: root.optionalEnabled ? qsTr("Active") : qsTr("None")
-                    font.pixelSize: 10
-                    color: optCheck.checked ? root.accentColor : (root.lightMode ? "#adb5bd" : "#6c757d")
-                }
             }
+
+            Item { Layout.fillWidth: true }
         }
 
         // Stepper Row: [-] [ Input ] [+]
@@ -139,8 +134,11 @@ Item {
                     padding: 0
                     enabled: !root.isOptional || root.optionalEnabled
                     color: enabled
-                           ? (root.lightMode ? "#212529" : "#ffffff")
+                           ? (root.isEstimated
+                              ? (root.lightMode ? "#868e96" : "#adb5bd")
+                              : (root.lightMode ? "#212529" : "#ffffff"))
                            : (root.lightMode ? "#adb5bd" : "#6c757d")
+                    opacity: root.isEstimated ? 0.75 : 1.0
                     background: Item {}
 
                     text: formatValue(root.value)
@@ -148,6 +146,7 @@ Item {
                     onEditingFinished: {
                         var parsed = parseFloat(textInput.text.replace(/[^0-9.-]/g, ""))
                         if (!isNaN(parsed)) {
+                            root.isEstimated = false
                             root.setValueClamped(parsed)
                         } else {
                             textInput.text = formatValue(root.value)
@@ -206,6 +205,7 @@ Item {
     }
 
     function stepBy(steps) {
+        root.isEstimated = false
         var newVal = root.value + (steps * root.stepSize)
         setValueClamped(newVal)
     }

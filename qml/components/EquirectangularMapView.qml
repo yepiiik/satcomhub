@@ -21,32 +21,98 @@ Item {
     property real draftAlt: 0.0
     property string draftName: ""
 
-    property real equiZoomScale: 1.0
+    readonly property real minZoomScale: (equiFlickable.width > 0 && equiFlickable.height > 0)
+        ? Math.max(equiFlickable.width / equiMapImage.width, equiFlickable.height / equiMapImage.height)
+        : 1.0
+
+    property real equiZoomScale: minZoomScale
+    property bool initialized: false
 
     signal markerSelected(string stationId, string stationName)
     signal satelliteSelected(string satId, string satName)
     signal coordinatePicked(real latitude, real longitude)
 
+    onWidthChanged: clampToBounds()
+    onHeightChanged: clampToBounds()
+    onMinZoomScaleChanged: {
+        if (!initialized && minZoomScale > 0 && equiFlickable.width > 0 && equiFlickable.height > 0) {
+            equiZoomScale = minZoomScale
+            initialized = true
+        } else if (equiZoomScale < minZoomScale) {
+            equiZoomScale = minZoomScale
+        }
+        clampToBounds()
+    }
+
+    function clampToBounds() {
+        if (equiZoomScale < minZoomScale) {
+            equiZoomScale = minZoomScale
+        }
+        var maxContentX = Math.max(0, equiMapImage.width * equiZoomScale - equiFlickable.width)
+        var maxContentY = Math.max(0, equiMapImage.height * equiZoomScale - equiFlickable.height)
+        equiFlickable.contentX = Math.max(0, Math.min(maxContentX, equiFlickable.contentX))
+        equiFlickable.contentY = Math.max(0, Math.min(maxContentY, equiFlickable.contentY))
+        equiFootprintCanvas.requestPaint()
+    }
+
     function requestCanvasRedraw() {
         equiFootprintCanvas.requestPaint()
     }
 
-    function zoomIn() {
-        equiZoomScale = Math.min(equiZoomScale + 0.3, 4.0)
+    function zoomAtPoint(factor, centerX, centerY) {
+        var minScale = equirectangularView.minZoomScale
+        var maxScale = Math.max(minScale, 5.0)
+
+        var oldScale = equiZoomScale
+        var newScale = Math.max(minScale, Math.min(maxScale, oldScale * factor))
+        if (Math.abs(newScale - oldScale) < 0.0001) return
+
+        if (centerX === undefined || centerX === null) {
+            centerX = equiFlickable.width / 2
+        }
+        if (centerY === undefined || centerY === null) {
+            centerY = equiFlickable.height / 2
+        }
+
+        // Map coordinate under cursor before zoom
+        var mapX = (equiFlickable.contentX + centerX) / oldScale
+        var mapY = (equiFlickable.contentY + centerY) / oldScale
+
+        equiZoomScale = newScale
+
+        // Position contentX and contentY so mapX, mapY remains under the cursor
+        var targetContentX = mapX * newScale - centerX
+        var targetContentY = mapY * newScale - centerY
+
+        var maxContentX = Math.max(0, equiMapImage.width * newScale - equiFlickable.width)
+        var maxContentY = Math.max(0, equiMapImage.height * newScale - equiFlickable.height)
+
+        equiFlickable.contentX = Math.max(0, Math.min(maxContentX, targetContentX))
+        equiFlickable.contentY = Math.max(0, Math.min(maxContentY, targetContentY))
+
         equiFootprintCanvas.requestPaint()
+    }
+
+    function zoomIn() {
+        zoomAtPoint(1.25, equiFlickable.width / 2, equiFlickable.height / 2)
     }
 
     function zoomOut() {
-        equiZoomScale = Math.max(equiZoomScale - 0.3, 0.6)
-        equiFootprintCanvas.requestPaint()
+        zoomAtPoint(0.8, equiFlickable.width / 2, equiFlickable.height / 2)
     }
 
     function focusOnCoordinate(latitude, longitude) {
+        if (equiZoomScale < minZoomScale) {
+            equiZoomScale = minZoomScale
+        }
         var targetContentX = MapUtils.lonToX(longitude, equiMapImage.width) * equiZoomScale - equiFlickable.width / 2
         var targetContentY = MapUtils.latToY(latitude, equiMapImage.height) * equiZoomScale - equiFlickable.height / 2
 
-        equiFlickable.contentX = Math.max(0, Math.min(equiContainer.width - equiFlickable.width, targetContentX))
-        equiFlickable.contentY = Math.max(0, Math.min(equiContainer.height - equiFlickable.height, targetContentY))
+        var maxContentX = Math.max(0, equiMapImage.width * equiZoomScale - equiFlickable.width)
+        var maxContentY = Math.max(0, equiMapImage.height * equiZoomScale - equiFlickable.height)
+
+        equiFlickable.contentX = Math.max(0, Math.min(maxContentX, targetContentX))
+        equiFlickable.contentY = Math.max(0, Math.min(maxContentY, targetContentY))
     }
 
     onSelectedStationIdChanged: equiFootprintCanvas.requestPaint()
@@ -407,6 +473,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
+            enabled: equirectangularView.pickModeEnabled
             cursorShape: equirectangularView.pickModeEnabled ? Qt.CrossCursor : Qt.ArrowCursor
 
             onClicked: (mouse) => {
@@ -423,13 +490,24 @@ Item {
         }
 
         WheelHandler {
+            id: equiWheelHandler
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             rotationScale: 1 / 120
 
             onWheel: (event) => {
-                var zoomChange = (event.angleDelta.y / 120) * 0.25
-                equirectangularView.equiZoomScale = Math.max(0.6, Math.min(4.0, equirectangularView.equiZoomScale + zoomChange))
-                equiFootprintCanvas.requestPaint()
+                var delta = event.angleDelta.y
+                if (delta === 0) return
+                var factor = delta > 0 ? (1.0 + (delta / 120) * 0.15) : (1.0 / (1.0 + (-delta / 120) * 0.15))
+                var mx = equiFlickable.width / 2
+                var my = equiFlickable.height / 2
+                if (event && typeof event.x === "number") {
+                    mx = event.x
+                    my = event.y
+                } else if (equiWheelHandler.point && typeof equiWheelHandler.point.position.x === "number") {
+                    mx = equiWheelHandler.point.position.x
+                    my = equiWheelHandler.point.position.y
+                }
+                equirectangularView.zoomAtPoint(factor, mx, my)
             }
         }
     }
