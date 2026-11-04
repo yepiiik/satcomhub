@@ -33,16 +33,26 @@ class TestRainAttenuationModule(unittest.TestCase):
         self.assertEqual(result["version"], 1.0)
         self.assertEqual(result["factor_name"], "rain_density")
         self.assertEqual(result["units"], "mm/m^2")
-        self.assertIn("session_values", result)
-        self.assertEqual(len(result["session_values"]), 2)
+        self.assertIn("ground_stations_session_values", result)
 
-        for idx, item in enumerate(result["session_values"]):
-            self.assertEqual(
-                item["utc_time"],
-                self.sample_input["satellite_session"][idx]["utc_time"],
-            )
-            self.assertIsInstance(item["value"], (int, float))
-            self.assertGreaterEqual(item["value"], 0.0)
+        stations_out = result["ground_stations_session_values"]
+        self.assertEqual(len(stations_out), len(self.sample_input["ground_stations_list"]))
+
+        for st_res in stations_out:
+            self.assertIn("ground_station_name", st_res)
+            self.assertIn("stationId", st_res)
+            self.assertIn("samples_count", st_res)
+            self.assertIn("session_values", st_res)
+            self.assertEqual(st_res["samples_count"], len(st_res["session_values"]))
+            self.assertEqual(len(st_res["session_values"]), 2)
+
+            for idx, item in enumerate(st_res["session_values"]):
+                self.assertEqual(
+                    item["utc_time"],
+                    self.sample_input["satellite_session"][idx]["utc_time"],
+                )
+                self.assertIsInstance(item["value"], (int, float))
+                self.assertGreaterEqual(item["value"], 0.0)
 
     def test_elevation_dependence_of_los_rain_density(self) -> None:
         """
@@ -70,6 +80,42 @@ class TestRainAttenuationModule(unittest.TestCase):
 
         self.assertGreater(density_low, density_zenith)
 
+    def test_per_station_visibility_and_samples_count(self) -> None:
+        """
+        Verify that when multiple stations have different visibility windows during a pass,
+        each station gets its own separate `samples_count` and LOS `session_values`.
+        """
+        input_payload = {
+            "satellite_session": [
+                {"utc_time": "04-11-2026 11:45:20", "longitude": 21.0122, "latitiude": 52.2297, "altitude": 500.0},
+                {"utc_time": "04-11-2026 11:45:21", "longitude": 21.0122, "latitiude": 50.0647, "altitude": 500.0},
+                {"utc_time": "04-11-2026 11:45:22", "longitude": 31.2357, "latitiude": 30.0444, "altitude": 500.0},
+            ],
+            "ground_stations_list": [
+                {
+                    "name": "Warsaw Primary Hub",
+                    "stationId": "GS-01",
+                    "min_elevation_deg": 20.0,
+                    "coordinates": {"latitude": 52.2297, "longitude": 21.0122, "altitude_m": 220},
+                },
+                {
+                    "name": "Cairo South Station",
+                    "stationId": "GS-02",
+                    "min_elevation_deg": 20.0,
+                    "coordinates": {"latitude": 30.0444, "longitude": 31.2357, "altitude_m": 100},
+                },
+            ],
+        }
+        res = run_rain_density_analysis(input_payload, allow_network=False)
+        stations_out = res["ground_stations_session_values"]
+        self.assertEqual(len(stations_out), 2)
+        # Warsaw sees the first 2 samples at high elevation, not the 3rd at 30 deg N
+        self.assertEqual(stations_out[0]["ground_station_name"], "Warsaw Primary Hub")
+        self.assertEqual(stations_out[0]["samples_count"], 2)
+        # Cairo only sees the 3rd sample at 30 deg N
+        self.assertEqual(stations_out[1]["ground_station_name"], "Cairo South Station")
+        self.assertEqual(stations_out[1]["samples_count"], 1)
+
     def test_cli_execution(self) -> None:
         """Verify CLI execution with --input flag outputs valid JSON."""
         script_path = os.path.join(os.path.dirname(__file__), "rain_attenuation.py")
@@ -83,9 +129,9 @@ class TestRainAttenuationModule(unittest.TestCase):
         self.assertEqual(output["module_name"], "Rain_Attenuation")
         self.assertEqual(output["factor_name"], "rain_density")
         self.assertEqual(output["units"], "mm/m^2")
-        self.assertEqual(len(output["session_values"]), 2)
+        self.assertIn("ground_stations_session_values", output)
+        self.assertEqual(len(output["ground_stations_session_values"][0]["session_values"]), 2)
 
 
 if __name__ == "__main__":
     unittest.main()
-

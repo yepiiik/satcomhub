@@ -27,6 +27,8 @@ qt_add_executable(appsatcomhub
     src/satellite/SignalLossModel.h
     src/satellite/StationManager.cpp
     src/satellite/StationManager.h
+    src/satellite/PythonModuleRunner.cpp
+    src/satellite/PythonModuleRunner.h
 )
 
 target_include_directories(appsatcomhub PRIVATE
@@ -60,6 +62,7 @@ qt_add_qml_module(appsatcomhub
         qml/components/PlanningSessionDetailsView.qml
         qml/components/HistoryListSidebar.qml
         qml/components/HistoryDetailsView.qml
+        qml/components/ToastStackOverlay.qml
     RESOURCES
         resources/marker.svg
         resources/earth_equirectangular.jpg

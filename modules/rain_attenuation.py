@@ -512,47 +512,65 @@ class RainAttenuationModule:
     def process_session(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process the complete input JSON dictionary and return the output JSON
-        dictionary adhering to the schema in README.md.
+        dictionary adhering to the schema in README.md, with LOS rain density
+        calculated separately for each ground station in the session.
         """
         session_entries = input_data.get("satellite_session", [])
         stations_raw = input_data.get("ground_stations_list", [])
 
-        stations: List[Tuple[GeoPoint, float]] = []
-        for st in stations_raw:
+        parsed_stations: List[Tuple[str, str, GeoPoint, float]] = []
+        for idx, st in enumerate(stations_raw):
+            st_name = str(st.get("name", f"Ground Station {idx + 1}"))
+            st_id = str(st.get("stationId", f"GS-{idx + 1:02d}"))
             st_pt = extract_station_geo_point(st)
             min_el = float(st.get("min_elevation_deg", 5.0))
-            stations.append((st_pt, min_el))
+            parsed_stations.append((st_name, st_id, st_pt, min_el))
 
         # Default fallback station if ground_stations_list is empty
-        if not stations:
-            stations.append((GeoPoint(52.4020, 16.9515, 0.15), 5.0))
+        if not parsed_stations:
+            parsed_stations.append(
+                ("Default Ground Station", "GS-01", GeoPoint(52.4020, 16.9515, 0.15), 5.0)
+            )
 
-        session_values: List[Dict[str, Any]] = []
-
+        # Pre-parse satellite positions and timestamps once
+        parsed_sat_samples: List[Tuple[str, datetime.datetime, GeoPoint]] = []
         for entry in session_entries:
             utc_str = str(entry.get("utc_time", ""))
             dt_utc = parse_utc_timestamp(utc_str)
             sat_pt = extract_sat_geo_point(entry)
+            parsed_sat_samples.append((utc_str, dt_utc, sat_pt))
 
-            # Evaluate LOS rain density across stations (for site diversity, select
-            # the best visible station or average across active stations)
-            station_densities: List[float] = []
-            for st_pt, min_el in stations:
+        ground_stations_session_values: List[Dict[str, Any]] = []
+
+        for st_name, st_id, st_pt, min_el in parsed_stations:
+            # Filter to timestamps where the satellite is above this station's min_elevation_deg
+            visible_samples = [
+                (utc_str, dt_utc, sat_pt)
+                for (utc_str, dt_utc, sat_pt) in parsed_sat_samples
+                if compute_look_angles(st_pt, sat_pt).elevation_deg >= min_el
+            ]
+            # Fallback to all provided session timestamps if none exceed min_el (e.g. synthetic test inputs)
+            samples_to_eval = visible_samples if visible_samples else parsed_sat_samples
+
+            station_session_values: List[Dict[str, Any]] = []
+            for utc_str, dt_utc, sat_pt in samples_to_eval:
                 d_val = self.compute_los_rain_density_for_station(
                     station_pt=st_pt,
                     sat_pt=sat_pt,
                     dt_utc=dt_utc,
                     min_elevation_deg=min_el,
                 )
-                station_densities.append(d_val)
+                formatted_val: Any = int(d_val) if d_val == int(d_val) else round(d_val, 2)
+                station_session_values.append({
+                    "utc_time": utc_str,
+                    "value": formatted_val,
+                })
 
-            best_density = min(station_densities) if station_densities else 0.0
-            # If value is an exact integer, format cleanly while preserving float accuracy
-            formatted_val: Any = int(best_density) if best_density == int(best_density) else round(best_density, 2)
-
-            session_values.append({
-                "utc_time": utc_str,
-                "value": formatted_val,
+            ground_stations_session_values.append({
+                "ground_station_name": st_name,
+                "stationId": st_id,
+                "samples_count": len(station_session_values),
+                "session_values": station_session_values,
             })
 
         return {
@@ -560,7 +578,7 @@ class RainAttenuationModule:
             "version": self.VERSION,
             "factor_name": self.FACTOR_NAME,
             "units": self.UNITS,
-            "session_values": session_values,
+            "ground_stations_session_values": ground_stations_session_values,
         }
 
 

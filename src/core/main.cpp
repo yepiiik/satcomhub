@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include "../satellite/SatellitePropagator.h"
 #include "../satellite/StationManager.h"
+#include "../satellite/PythonModuleRunner.h"
 
 int main(int argc, char *argv[])
 {
@@ -11,6 +12,7 @@ int main(int argc, char *argv[])
 
     qmlRegisterType<SatellitePropagator>("satcomhub", 1, 0, "SatellitePropagator");
     qmlRegisterType<StationManager>("satcomhub", 1, 0, "StationManager");
+    qmlRegisterType<PythonModuleRunner>("satcomhub", 1, 0, "PythonModuleRunner");
 
     QQmlApplicationEngine engine;
     QObject::connect(

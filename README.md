@@ -12,8 +12,8 @@ The main purpose of the software is to generate Session Plan file that will be e
 ```json
 {
     "satellite_session": [
-        {"utc_time": "04-11-2026 11:45:20", "lontitude": 52.51523, "latitiude": 15.52351, "altitude": 1435.3}, // altitude in kilometers
-        {"utc_time": "04-11-2026 11:45:21", "lontitude": 52.51153, "latitiude": 15.52805, "altitude": 1435.2},
+        {"utc_time": "04-11-2026 11:45:20", "longitude": 52.51523, "latitiude": 15.52351, "altitude": 1435.3}, // altitude in kilometers
+        {"utc_time": "04-11-2026 11:45:21", "longitude": 52.51153, "latitiude": 15.52805, "altitude": 1435.2},
     ],
     "ground_stations_list": [
         {
@@ -121,12 +121,50 @@ The main purpose of the software is to generate Session Plan file that will be e
     "version": 1.0,
     "factor_name": "rain_density",
     "units": "mm/m^2",
-    "session_values": [
-        {"utc_time": "04-11-2026 11:45:20", "value": 23},
-        {"utc_time": "04-11-2026 11:45:21", "value": 23}
+    "ground_stations_session_values": [
+        {
+            "ground_station_name": "Piotrowo C-band",
+            "stationId": "GS-01",
+            "samples_count": 2,
+            "session_values": [
+                {"utc_time": "04-11-2026 11:45:20", "value": 23},
+                {"utc_time": "04-11-2026 11:45:21", "value": 23}
+            ]
+        }
     ]
 }
 ```
 
 # 4. Main program attenuation correlation
-After getting all the factors, program can use third-party modules such as pre-trained Random Forest to predict attenuation based on provided factors at each moment of the session. The schema for this will be decided later 
+After getting all the factors, program can use third-party modules such as pre-trained Random Forest to predict attenuation based on provided factors at each moment of the session. 
+
+## The scema for the input of correlation module:
+```json
+{
+    "ground_station_name": "Piotrowo C-band", // For each station calculating separately
+    "samples_count": 420,
+    "factors_list": [
+        {
+            "factor_name": "Rain_density",
+            "factor_units": "mm/m^2",
+            "values": [0,0,0,0,0] // Length must be equal to sample_count
+        },
+        {
+            "factor_name": "Ground_Station_Wind_Speed",
+            "factor_units": "km/h",
+            "values": [0,0,0,0,0] // Length must be equal to sample_count
+        },
+    ]
+}
+```
+
+## The schema for the output of correlation module:
+
+```json
+{
+    "total_attenuation_db_list": [0.000, 0.002, 0.151, 0.166], // Length must be equal to sample_count
+    "sample_count": 420,
+    "status": 0,
+    "message": "Finished"
+}
+```
