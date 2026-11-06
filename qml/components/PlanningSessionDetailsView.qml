@@ -13,8 +13,9 @@ Rectangle {
     property bool showShannonLimits: true
     property int hoveredSampleIndex: -1
 
-    // Python Factor Calculation Modules state & models
+    // Python Factor Calculation Modules state & models (per-station map: stationId -> array of module objects)
     property var addedModulesModel: null
+    property var stationFactorModulesMap: ({})
     property var recentModulesList: []
     property var pythonEnvInfo: ({ available: true, version: "Python 3", isVenv: false })
     property string sessionInputJsonPreview: ""
@@ -127,12 +128,21 @@ Rectangle {
     signal previewSessionPlanYamlRequested(var transmissionParams)
     signal exportSessionPlanYamlRequested(var transmissionParams)
 
+    signal browseStationModuleRequested(string stationId)
+    signal addRecentStationModuleRequested(string stationId, string modulePath)
+    signal removeStationModuleRequested(string stationId, int moduleIndex)
+    signal toggleStationModuleEnabledRequested(string stationId, int moduleIndex, bool enabled)
+    signal runStationModuleRequested(string stationId, int moduleIndex)
+    signal previewStationInputJsonRequested(string stationId, string stationName)
+
     signal browseModuleRequested()
     signal addRecentModuleRequested(string modulePath)
     signal removeAddedModuleRequested(int index)
+    signal toggleModuleEnabledRequested(int index, bool enabled)
     signal runModuleRequested(int index, string modulePath)
     signal runAllModulesRequested()
     signal generateInputJsonPreviewRequested()
+    signal previewJsonModalRequested(string docTitle, string subtitle, string jsonText, string suggestedFileName)
 
     signal browseCorrelationModuleRequested()
     signal correlationModuleSelected(string modulePath)
@@ -347,6 +357,1123 @@ Rectangle {
                 }
             }
 
+            // --- PARTICIPATING GROUND STATIONS BREAKDOWN (WITH PER-STATION FACTOR MODULES & POLAR PLOT) ---
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Label {
+                    text: qsTr("Participating Ground Stations Breakdown")
+                    font.bold: true
+                    font.pixelSize: 13
+                    color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
+                }
+
+                Rectangle {
+                    height: 20
+                    width: graphLossBadgeText.implicitWidth + 14
+                    radius: 10
+                    color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
+                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
+                           : (detailsRoot.lightMode ? "#f1f3f5" : "#1e2230")
+                    border.color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
+                                  ? "#40c057"
+                                  : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
+                    border.width: 1
+                    Text {
+                        id: graphLossBadgeText
+                        anchors.centerIn: parent
+                        text: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
+                              ? "⚡ Extra Factor Losses Applied to Graph"
+                              : "Baseline Link Budget (Default FSPL Active)"
+                        font.bold: true
+                        font.pixelSize: 10
+                        color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
+                               ? "#40c057"
+                               : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    id: previewSessionInputPopupBtn
+                    height: 24
+                    background: Rectangle {
+                        radius: 6
+                        color: previewSessionInputPopupBtn.hovered
+                               ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
+                               : (detailsRoot.lightMode ? "#ffffff" : "#141720")
+                        border.color: "#339af0"
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: "{ } Session Input JSON"
+                        font.bold: true
+                        font.pixelSize: 10
+                        color: "#339af0"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: 8
+                        rightPadding: 8
+                    }
+                    onClicked: {
+                        detailsRoot.generateInputJsonPreviewRequested()
+                        var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
+                        var satName = (detailsRoot.snrProfileData && detailsRoot.snrProfileData.satelliteName) ? detailsRoot.snrProfileData.satelliteName : "Satellite"
+                        detailsRoot.previewJsonModalRequested(
+                            qsTr("Session Prediction Input JSON"),
+                            satName + " — Pass #" + passIdx + " (Full session prediction payload)",
+                            detailsRoot.sessionInputJsonPreview,
+                            "session_pass_" + passIdx + "_input.json"
+                        )
+                    }
+                }
+
+                // Python runtime badge
+                Rectangle {
+                    height: 24
+                    width: pyTopBadgeRow.implicitWidth + 12
+                    radius: 12
+                    color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
+                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
+                           : (detailsRoot.lightMode ? "#fff5f5" : "#2d1418")
+                    border.color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
+                                  ? "#40c057"
+                                  : "#fa5252"
+                    border.width: 1
+
+                    RowLayout {
+                        id: pyTopBadgeRow
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        Rectangle {
+                            width: 6; height: 6; radius: 3
+                            color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
+                        }
+                        Text {
+                            text: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
+                                  ? (detailsRoot.pythonEnvInfo.version + (detailsRoot.pythonEnvInfo.isVenv ? " (venv)" : " (Global)"))
+                                  : "Python Not Found"
+                            font.bold: true
+                            font.pixelSize: 10
+                            color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
+                        }
+                    }
+                }
+            }
+
+            // Participating Ground Station Cards Grid (each station has Pass Geometry + Per-Station Factor Modules + Polar Plot Space)
+            GridLayout {
+                Layout.fillWidth: true
+                columns: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses && detailsRoot.sessionEvent.stationPasses.length === 1) ? 1 : 2
+                columnSpacing: 12
+                rowSpacing: 12
+
+                Repeater {
+                    model: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses) ? detailsRoot.sessionEvent.stationPasses : []
+
+                    Rectangle {
+                        id: stationBreakdownCard
+                        readonly property int stationIndex: index
+                        readonly property string stId: modelData.stationId || ("GS-" + (index + 1))
+                        readonly property string stName: modelData.stationName || ("Station " + (index + 1))
+                        readonly property color stColor: detailsRoot.getStationColor(index)
+                        readonly property var stModulesList: (detailsRoot.stationFactorModulesMap && detailsRoot.stationFactorModulesMap[stId])
+                                                             ? detailsRoot.stationFactorModulesMap[stId]
+                                                             : []
+                        readonly property var stSnrEntry: {
+                            if (!detailsRoot.snrProfileData || !detailsRoot.snrProfileData.stations) return null
+                            for (var s = 0; s < detailsRoot.snrProfileData.stations.length; s++) {
+                                var candidate = detailsRoot.snrProfileData.stations[s]
+                                if (candidate.stationId === stId || candidate.stationName === stName) {
+                                    return candidate
+                                }
+                            }
+                            if (index < detailsRoot.snrProfileData.stations.length) {
+                                return detailsRoot.snrProfileData.stations[index]
+                            }
+                            return null
+                        }
+
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        implicitHeight: stationCardMainRow.implicitHeight + 22
+                        Layout.preferredHeight: implicitHeight
+                        radius: 10
+                        color: detailsRoot.lightMode ? "#ffffff" : "#141720"
+                        border.color: stColor
+                        border.width: 1.2
+
+                        RowLayout {
+                            id: stationCardMainRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 11
+                            spacing: 12
+
+                            // LEFT/CENTER COLUMN: Station Telemetry + Per-Station Factor Modules + Correlation Status
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 7
+
+                                // 1. Station Header & Pass Geometry
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Rectangle {
+                                        width: 9; height: 9; radius: 4.5
+                                        color: stationBreakdownCard.stColor
+                                    }
+
+                                    Label {
+                                        text: stationBreakdownCard.stName
+                                        font.bold: true
+                                        font.pixelSize: 13
+                                        color: stationBreakdownCard.stColor
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    Button {
+                                        id: stInputJsonBtn
+                                        height: 22
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: stInputJsonBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
+                                                   : (detailsRoot.lightMode ? "#f1f3f5" : "#1a1e29")
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3548"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "{ } Input JSON"
+                                            font.bold: true
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 6
+                                            rightPadding: 6
+                                        }
+                                        onClicked: {
+                                            detailsRoot.previewStationInputJsonRequested(stationBreakdownCard.stId, stationBreakdownCard.stName)
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        height: 20
+                                        width: visTimeTxt.implicitWidth + 12
+                                        radius: 10
+                                        color: detailsRoot.lightMode ? "#f1f3f5" : "#1c2130"
+                                        Text {
+                                            id: visTimeTxt
+                                            anchors.centerIn: parent
+                                            text: "Visible: " + modelData.durationFormatted
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            color: detailsRoot.lightMode ? "#212529" : "#ffffff"
+                                        }
+                                    }
+                                }
+
+                                // AOS / LOS / TCA / Peak Elevation Row
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Label {
+                                        text: "AOS: " + modelData.aosUtc + " (" + modelData.aosAzimuthCompass + ") → LOS: " + modelData.losUtc + " (" + modelData.losAzimuthCompass + ")"
+                                        font.pixelSize: 10
+                                        font.family: "monospace"
+                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    Label {
+                                        text: "TCA: " + modelData.tcaUtc + " • Peak El: " + modelData.maxElevationDeg + "° • " + Math.round(modelData.tcaRangeKm) + " km"
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        color: modelData.maxElevationDeg >= 50.0 ? "#2f9e44" : "#f59f00"
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 1
+                                    color: detailsRoot.lightMode ? "#e9ecef" : "#222838"
+                                }
+
+                                // 2. Per-Station Factor Modules Header & Add Controls
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Label {
+                                        text: qsTr("Loss Factor Modules:")
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
+                                    }
+
+                                    ComboBox {
+                                        id: stRecentModulesCombo
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 110
+                                        height: 24
+                                        model: detailsRoot.recentModulesList
+                                        textRole: "name"
+                                        valueRole: "path"
+                                        font.pixelSize: 10
+
+                                        delegate: ItemDelegate {
+                                            width: stRecentModulesCombo.width
+                                            contentItem: ColumnLayout {
+                                                spacing: 1
+                                                Text {
+                                                    text: modelData.name
+                                                    font.bold: true
+                                                    font.pixelSize: 10
+                                                    color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                                    elide: Text.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+                                                Text {
+                                                    text: modelData.path
+                                                    font.pixelSize: 8
+                                                    font.family: "monospace"
+                                                    color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                                    elide: Text.ElideMiddle
+                                                    Layout.fillWidth: true
+                                                }
+                                            }
+                                            background: Rectangle {
+                                                color: highlighted
+                                                       ? (detailsRoot.lightMode ? "#e7f5ff" : "#1e293b")
+                                                       : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        id: stAddModBtn
+                                        height: 24
+                                        enabled: detailsRoot.recentModulesList && detailsRoot.recentModulesList.length > 0
+                                        background: Rectangle {
+                                            radius: 5
+                                            color: stAddModBtn.hovered ? "#1c7ed6" : "#228be6"
+                                            opacity: stAddModBtn.enabled ? 1.0 : 0.5
+                                        }
+                                        contentItem: Text {
+                                            text: "＋ Add"
+                                            font.bold: true
+                                            font.pixelSize: 9
+                                            color: "#ffffff"
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 7
+                                            rightPadding: 7
+                                        }
+                                        onClicked: {
+                                            if (stRecentModulesCombo.currentIndex >= 0 && stRecentModulesCombo.currentIndex < detailsRoot.recentModulesList.length) {
+                                                var item = detailsRoot.recentModulesList[stRecentModulesCombo.currentIndex]
+                                                detailsRoot.addRecentStationModuleRequested(stationBreakdownCard.stId, item.path)
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        id: stBrowseModBtn
+                                        height: 24
+                                        background: Rectangle {
+                                            radius: 5
+                                            color: stBrowseModBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
+                                            border.color: "#339af0"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "📂 .py"
+                                            font.bold: true
+                                            font.pixelSize: 9
+                                            color: "#339af0"
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 6
+                                            rightPadding: 6
+                                        }
+                                        onClicked: detailsRoot.browseStationModuleRequested(stationBreakdownCard.stId)
+                                    }
+                                }
+
+                                // 3. Factor Modules List for THIS Station (Starts with Default Locked FSPL)
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    // DEFAULT LOCKED FACTOR MODULE: FSPL (Free Space Path Loss) — Cannot be turned off
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 30
+                                        radius: 5
+                                        color: detailsRoot.lightMode ? "#ebfbee" : "#0f1e19"
+                                        border.color: detailsRoot.lightMode ? "#b2f2bb" : "#234832"
+                                        border.width: 1
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            spacing: 6
+
+                                            // Locked ON Pill (cannot be turned off)
+                                            Rectangle {
+                                                width: 52
+                                                height: 20
+                                                radius: 10
+                                                color: "#2b8a3e"
+                                                border.color: "#40c057"
+                                                border.width: 1
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    spacing: 2
+                                                    Text {
+                                                        text: "ON"
+                                                        font.bold: true
+                                                        font.pixelSize: 8
+                                                        color: "#ffffff"
+                                                    }
+                                                    Text {
+                                                        text: "🔒"
+                                                        font.pixelSize: 8
+                                                    }
+                                                }
+                                            }
+
+                                            Label {
+                                                text: "FSPL (Free Space Path Loss)"
+                                                font.bold: true
+                                                font.pixelSize: 10
+                                                color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                            }
+
+                                            Rectangle {
+                                                height: 15
+                                                width: fsplUnitBadge.implicitWidth + 8
+                                                radius: 4
+                                                color: detailsRoot.lightMode ? "#d3f9d8" : "#163624"
+                                                Text {
+                                                    id: fsplUnitBadge
+                                                    anchors.centerIn: parent
+                                                    text: "fspl [dB]"
+                                                    font.pixelSize: 8
+                                                    font.family: "monospace"
+                                                    font.bold: true
+                                                    color: "#51cf66"
+                                                }
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Text {
+                                                text: stationBreakdownCard.stSnrEntry && stationBreakdownCard.stSnrEntry.minFsplDb < 900
+                                                      ? ("Min: " + stationBreakdownCard.stSnrEntry.minFsplDb.toFixed(1) + " dB • Default")
+                                                      : "Default (Always Active)"
+                                                font.pixelSize: 9
+                                                font.family: "monospace"
+                                                font.bold: true
+                                                color: "#40c057"
+                                            }
+                                        }
+                                    }
+
+                                    // ATTACHABLE PYTHON FACTOR MODULES FOR THIS STATION (Toggled ON/OFF Independently)
+                                    Repeater {
+                                        model: stationBreakdownCard.stModulesList
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            implicitHeight: 32
+                                            radius: 5
+                                            color: modelData.enabled
+                                                   ? (detailsRoot.lightMode ? "#ebfbee" : "#11211c")
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#151924")
+                                            border.color: modelData.status === "error"
+                                                          ? "#fa5252"
+                                                          : (modelData.enabled
+                                                             ? "#40c057"
+                                                             : (modelData.status === "running"
+                                                                ? "#339af0"
+                                                                : (detailsRoot.lightMode ? "#dee2e6" : "#252a3a")))
+                                            border.width: 1
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 6
+                                                anchors.rightMargin: 6
+                                                spacing: 6
+
+                                                // Independent ON / OFF Toggle Switch for this station's factor module
+                                                Button {
+                                                    id: stFactorToggleBtn
+                                                    implicitWidth: 52
+                                                    implicitHeight: 20
+                                                    padding: 0
+                                                    background: Rectangle {
+                                                        radius: 10
+                                                        color: modelData.enabled
+                                                               ? "#40c057"
+                                                               : (detailsRoot.lightMode ? "#ced4da" : "#2c3242")
+                                                        border.color: modelData.enabled ? "#2f9e44" : (detailsRoot.lightMode ? "#adb5bd" : "#3b4254")
+                                                        border.width: 1
+
+                                                        Rectangle {
+                                                            width: 14
+                                                            height: 14
+                                                            radius: 7
+                                                            y: 3
+                                                            x: modelData.enabled ? (parent.width - width - 3) : 3
+                                                            color: "#ffffff"
+                                                            Behavior on x { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+                                                        }
+
+                                                        Text {
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            x: modelData.enabled ? 6 : 21
+                                                            text: modelData.enabled ? "ON" : "OFF"
+                                                            font.bold: true
+                                                            font.pixelSize: 8
+                                                            color: modelData.enabled ? "#ffffff" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                                        }
+                                                    }
+                                                    onClicked: {
+                                                        detailsRoot.toggleStationModuleEnabledRequested(
+                                                            stationBreakdownCard.stId,
+                                                            index,
+                                                            !modelData.enabled
+                                                        )
+                                                    }
+                                                }
+
+                                                Label {
+                                                    text: modelData.name
+                                                    font.bold: true
+                                                    font.pixelSize: 10
+                                                    elide: Text.ElideRight
+                                                    color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                                }
+
+                                                Rectangle {
+                                                    visible: modelData.factorName !== undefined && modelData.factorName !== ""
+                                                    height: 15
+                                                    width: stFactorMetaTxt.implicitWidth + 8
+                                                    radius: 4
+                                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#182b49"
+                                                    Text {
+                                                        id: stFactorMetaTxt
+                                                        anchors.centerIn: parent
+                                                        text: (modelData.factorName || "") + (modelData.units ? (" [" + modelData.units + "]") : "")
+                                                        font.pixelSize: 8
+                                                        font.family: "monospace"
+                                                        font.bold: true
+                                                        color: "#4dabf7"
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    height: 15
+                                                    width: stModStatusTxt.implicitWidth + 8
+                                                    radius: 7
+                                                    color: modelData.status === "error"
+                                                           ? "#2d1418"
+                                                           : (modelData.status === "running"
+                                                              ? "#14233c"
+                                                              : (modelData.enabled && modelData.status === "done"
+                                                                 ? "#132d1d"
+                                                                 : (detailsRoot.lightMode ? "#e9ecef" : "#252a38")))
+                                                    Text {
+                                                        id: stModStatusTxt
+                                                        anchors.centerIn: parent
+                                                        text: modelData.status === "error"
+                                                              ? "Error"
+                                                              : (modelData.status === "running"
+                                                                 ? "Running..."
+                                                                 : (modelData.enabled
+                                                                    ? (modelData.status === "done" ? "Applied" : "Queued")
+                                                                    : (modelData.status === "done" ? "Cached (OFF)" : "OFF")))
+                                                        font.bold: true
+                                                        font.pixelSize: 8
+                                                        color: modelData.status === "error"
+                                                               ? "#ff6b6b"
+                                                               : (modelData.status === "running"
+                                                                  ? "#4dabf7"
+                                                                  : (modelData.enabled && modelData.status === "done"
+                                                                     ? "#51cf66"
+                                                                     : (detailsRoot.lightMode ? "#6c757d" : "#adb5bd")))
+                                                    }
+                                                }
+
+                                                Item { Layout.fillWidth: true }
+
+                                                // Preview Factor Output JSON in Modal Popup
+                                                Button {
+                                                    id: stFactorJsonBtn
+                                                    height: 20
+                                                    visible: (modelData.outputJson && modelData.outputJson.length > 0) || (modelData.errorText && modelData.errorText.length > 0)
+                                                    background: Rectangle {
+                                                        radius: 4
+                                                        color: stFactorJsonBtn.hovered
+                                                               ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
+                                                               : (detailsRoot.lightMode ? "#ffffff" : "#1c2230")
+                                                        border.color: modelData.status === "error" ? "#fa5252" : "#339af0"
+                                                        border.width: 1
+                                                    }
+                                                    contentItem: Text {
+                                                        text: modelData.status === "error" ? "⚠️ Error" : "{ } JSON"
+                                                        font.bold: true
+                                                        font.pixelSize: 8
+                                                        color: modelData.status === "error" ? "#fa5252" : "#4dabf7"
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                        leftPadding: 5
+                                                        rightPadding: 5
+                                                    }
+                                                    onClicked: {
+                                                        var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
+                                                        detailsRoot.previewJsonModalRequested(
+                                                            qsTr("Factor Output JSON — ") + stationBreakdownCard.stName + " (" + modelData.name + ")",
+                                                            (modelData.factorName ? ("Factor: " + modelData.factorName + " [" + modelData.units + "] — ") : "") + "Pass #" + passIdx,
+                                                            (modelData.outputJson && modelData.outputJson.length > 0) ? modelData.outputJson : modelData.errorText,
+                                                            modelData.name.replace(/\.py$/i, "") + "_" + stationBreakdownCard.stId + "_pass_" + passIdx + ".json"
+                                                        )
+                                                    }
+                                                }
+
+                                                // Re-run Factor Module for this Station
+                                                Button {
+                                                    id: stRerunFactorBtn
+                                                    height: 20
+                                                    enabled: modelData.status !== "running"
+                                                    background: Rectangle {
+                                                        radius: 4
+                                                        color: stRerunFactorBtn.hovered
+                                                               ? (detailsRoot.lightMode ? "#dee2e6" : "#2c3347")
+                                                               : (detailsRoot.lightMode ? "#e9ecef" : "#222736")
+                                                    }
+                                                    contentItem: Text {
+                                                        text: modelData.status === "running" ? "⏳" : "↻"
+                                                        font.bold: true
+                                                        font.pixelSize: 9
+                                                        color: detailsRoot.lightMode ? "#495057" : "#ced4da"
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                        leftPadding: 5
+                                                        rightPadding: 5
+                                                    }
+                                                    onClicked: {
+                                                        detailsRoot.runStationModuleRequested(stationBreakdownCard.stId, index)
+                                                    }
+                                                }
+
+                                                // Remove Factor Module from this Station
+                                                Button {
+                                                    id: stRemoveModBtn
+                                                    width: 20
+                                                    height: 20
+                                                    padding: 0
+                                                    background: Rectangle {
+                                                        radius: 4
+                                                        color: stRemoveModBtn.hovered ? "#c92a2a" : "transparent"
+                                                    }
+                                                    contentItem: Text {
+                                                        text: "✕"
+                                                        font.bold: true
+                                                        font.pixelSize: 9
+                                                        color: stRemoveModBtn.hovered ? "#ffffff" : (detailsRoot.lightMode ? "#868e96" : "#909296")
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
+                                                    onClicked: {
+                                                        detailsRoot.removeStationModuleRequested(stationBreakdownCard.stId, index)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // RIGHT COLUMN: Dedicated Space for Polar Plot (Azimuth/Elevation Skyplot) for this Station
+                            Rectangle {
+                                Layout.preferredWidth: 162
+                                Layout.preferredHeight: 162
+                                Layout.minimumWidth: 162
+                                Layout.minimumHeight: 162
+                                Layout.alignment: Qt.AlignTop
+                                radius: 8
+                                color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1017"
+                                border.color: detailsRoot.lightMode ? "#dee2e6" : "#242a3a"
+                                border.width: 1
+
+                                Canvas {
+                                    id: stationPolarCanvas
+                                    anchors.fill: parent
+                                    antialiasing: true
+
+                                    property var stSnr: stationBreakdownCard.stSnrEntry
+                                    property color passColor: stationBreakdownCard.stColor
+                                    property int hoverIdx: detailsRoot.hoveredSampleIndex
+
+                                    onStSnrChanged: requestPaint()
+                                    onHoverIdxChanged: requestPaint()
+
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        var w = width
+                                        var h = height
+                                        ctx.clearRect(0, 0, w, h)
+
+                                        var cx = w / 2
+                                        var cy = h / 2 + 5
+                                        var maxR = 58
+
+                                        var isHoverValid = (hoverIdx >= 0 && stSnr && stSnr.isVisible && hoverIdx < stSnr.isVisible.length && stSnr.isVisible[hoverIdx])
+
+                                        // Title / Live Hover Readout
+                                        ctx.fillStyle = isHoverValid ? "#ffd43b" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                        ctx.font = isHoverValid ? "bold 8.5px monospace" : "bold 9px sans-serif"
+                                        ctx.textAlign = "center"
+                                        if (isHoverValid) {
+                                            var curAz = Math.round(Number(stSnr.azimuthDeg[hoverIdx]) || 0)
+                                            var curEl = Math.round(Number(stSnr.elevationDeg[hoverIdx]) || 0)
+                                            ctx.fillText("Az " + curAz + "°  El " + curEl + "°", cx, 11)
+                                        } else {
+                                            ctx.fillText("Polar Skyplot (Az/El)", cx, 11)
+                                        }
+
+                                        // Concentric elevation circles: 0° (outer), 30°, 60°
+                                        ctx.strokeStyle = detailsRoot.lightMode ? "#dee2e6" : "#1e2638"
+                                        ctx.lineWidth = 1
+                                        var rings = [1.0, 2.0 / 3.0, 1.0 / 3.0]
+                                        for (var rIdx = 0; rIdx < rings.length; rIdx++) {
+                                            ctx.beginPath()
+                                            ctx.arc(cx, cy, maxR * rings[rIdx], 0, 2 * Math.PI)
+                                            ctx.stroke()
+                                        }
+
+                                        // Elevation degree labels along North axis
+                                        ctx.fillStyle = detailsRoot.lightMode ? "#adb5bd" : "#495057"
+                                        ctx.font = "7px sans-serif"
+                                        ctx.textAlign = "left"
+                                        ctx.fillText("30°", cx + 2, cy - maxR * (2.0 / 3.0) + 7)
+                                        ctx.fillText("60°", cx + 2, cy - maxR * (1.0 / 3.0) + 7)
+
+                                        // Crosshair spokes (N-S, E-W)
+                                        ctx.beginPath()
+                                        ctx.moveTo(cx - maxR, cy); ctx.lineTo(cx + maxR, cy)
+                                        ctx.moveTo(cx, cy - maxR); ctx.lineTo(cx, cy + maxR)
+                                        ctx.stroke()
+
+                                        // Compass labels (N, E, S, W)
+                                        ctx.fillStyle = detailsRoot.lightMode ? "#6c757d" : "#868e96"
+                                        ctx.font = "bold 8.5px monospace"
+                                        ctx.textAlign = "center"
+                                        ctx.textBaseline = "middle"
+                                        ctx.fillText("N", cx, cy - maxR - 6)
+                                        ctx.fillText("S", cx, cy + maxR + 7)
+                                        ctx.fillText("E", cx + maxR + 7, cy)
+                                        ctx.fillText("W", cx - maxR - 7, cy)
+                                        ctx.textBaseline = "alphabetic" // reset
+
+                                        // Plot satellite pass trajectory if azimuthDeg & elevationDeg are available
+                                        if (stSnr && stSnr.elevationDeg && stSnr.azimuthDeg && stSnr.isVisible) {
+                                            var nPts = stSnr.elevationDeg.length
+                                            ctx.beginPath()
+                                            ctx.strokeStyle = passColor
+                                            ctx.lineWidth = 2.0
+                                            var started = false
+                                            var prevVis = false
+                                            var firstX = 0, firstY = 0, lastX = 0, lastY = 0
+
+                                            for (var i = 0; i < nPts; i++) {
+                                                if (!stSnr.isVisible[i]) {
+                                                    prevVis = false
+                                                    continue
+                                                }
+                                                var el = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[i]) || 0.0))
+                                                var azDeg = ((Number(stSnr.azimuthDeg[i]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                // 0 deg = North (top), 90 deg = East (right), clockwise
+                                                var azRad = (azDeg - 90.0) * (Math.PI / 180.0)
+                                                var r = maxR * (1.0 - el / 90.0)
+                                                var px = cx + r * Math.cos(azRad)
+                                                var py = cy + r * Math.sin(azRad)
+
+                                                if (!started || !prevVis) {
+                                                    ctx.moveTo(px, py)
+                                                    if (!started) {
+                                                        firstX = px; firstY = py
+                                                        started = true
+                                                    }
+                                                } else {
+                                                    ctx.lineTo(px, py)
+                                                }
+                                                lastX = px; lastY = py
+                                                prevVis = true
+                                            }
+                                            if (started) {
+                                                ctx.stroke()
+
+                                                // AOS (Green) & LOS (Red) dots
+                                                ctx.fillStyle = "#51cf66"
+                                                ctx.beginPath(); ctx.arc(firstX, firstY, 3.5, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.strokeStyle = "#ffffff"
+                                                ctx.lineWidth = 1
+                                                ctx.stroke()
+
+                                                ctx.fillStyle = "#ff6b6b"
+                                                ctx.beginPath(); ctx.arc(lastX, lastY, 3.5, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.stroke()
+                                            }
+
+                                            // Hovered sample marker on polar plot
+                                            if (isHoverValid && hoverIdx < nPts) {
+                                                var hEl = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[hoverIdx]) || 0.0))
+                                                var hAzDeg = ((Number(stSnr.azimuthDeg[hoverIdx]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                var hAzRad = (hAzDeg - 90.0) * (Math.PI / 180.0)
+                                                var hR = maxR * (1.0 - hEl / 90.0)
+                                                var hx = cx + hR * Math.cos(hAzRad)
+                                                var hy = cy + hR * Math.sin(hAzRad)
+                                                ctx.fillStyle = "#ffd43b"
+                                                ctx.beginPath(); ctx.arc(hx, hy, 4.5, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.strokeStyle = "#ffffff"
+                                                ctx.lineWidth = 1.2
+                                                ctx.stroke()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- SESSION-WIDE CORRELATION MODULE BAR (ONE FOR THE SESSION, ABOVE GRAPH) ---
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: sessionCorrCol.implicitHeight + 20
+                Layout.preferredHeight: implicitHeight
+                radius: 10
+                color: detailsRoot.lightMode ? "#ffffff" : "#141720"
+                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
+                border.width: 1
+
+                ColumnLayout {
+                    id: sessionCorrCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 10
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            width: 24
+                            height: 24
+                            radius: 6
+                            color: detailsRoot.lightMode ? "#fff3bf" : "#2d2411"
+                            border.color: "#f59f00"
+                            border.width: 1
+                            Text {
+                                anchors.centerIn: parent
+                                text: "📊"
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        Label {
+                            text: qsTr("Session Correlation Module:")
+                            font.bold: true
+                            font.pixelSize: 12
+                            color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
+                        }
+
+                        ComboBox {
+                            id: corrModuleCombo
+                            Layout.preferredWidth: 195
+                            height: 28
+                            model: detailsRoot.recentCorrelationModulesList
+                            textRole: "name"
+                            valueRole: "path"
+                            font.pixelSize: 11
+
+                            onActivated: function(idx) {
+                                if (idx >= 0 && idx < detailsRoot.recentCorrelationModulesList.length) {
+                                    detailsRoot.correlationModuleSelected(detailsRoot.recentCorrelationModulesList[idx].path)
+                                }
+                            }
+
+                            delegate: ItemDelegate {
+                                width: corrModuleCombo.width
+                                contentItem: ColumnLayout {
+                                    spacing: 1
+                                    Text {
+                                        text: modelData.name
+                                        font.bold: true
+                                        font.pixelSize: 11
+                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    Text {
+                                        text: modelData.path
+                                        font.pixelSize: 9
+                                        font.family: "monospace"
+                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                                background: Rectangle {
+                                    color: highlighted
+                                           ? (detailsRoot.lightMode ? "#fff3bf" : "#2d2411")
+                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
+                                }
+                            }
+                        }
+
+                        Button {
+                            id: browseCorrModBtn
+                            height: 28
+                            background: Rectangle {
+                                radius: 6
+                                color: browseCorrModBtn.hovered
+                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
+                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
+                                border.color: "#f59f00"
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: "📂 Browse (.py)"
+                                font.bold: true
+                                font.pixelSize: 10
+                                color: "#f59f00"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: 8
+                                rightPadding: 8
+                            }
+                            onClicked: detailsRoot.browseCorrelationModuleRequested()
+                        }
+
+                        Rectangle {
+                            width: 1; height: 18
+                            color: detailsRoot.lightMode ? "#dee2e6" : "#2d3345"
+                        }
+
+                        Label {
+                            text: qsTr("Lookup Table (.xlsx):")
+                            font.bold: true
+                            font.pixelSize: 11
+                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                        }
+
+                        ComboBox {
+                            id: excelFileCombo
+                            Layout.preferredWidth: 195
+                            height: 28
+                            model: detailsRoot.recentExcelFilesList
+                            textRole: "name"
+                            valueRole: "path"
+                            font.pixelSize: 11
+
+                            onActivated: function(idx) {
+                                if (idx >= 0 && idx < detailsRoot.recentExcelFilesList.length) {
+                                    detailsRoot.excelFileSelected(detailsRoot.recentExcelFilesList[idx].path)
+                                }
+                            }
+
+                            delegate: ItemDelegate {
+                                width: excelFileCombo.width
+                                contentItem: ColumnLayout {
+                                    spacing: 1
+                                    Text {
+                                        text: modelData.name
+                                        font.bold: true
+                                        font.pixelSize: 11
+                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    Text {
+                                        text: modelData.path
+                                        font.pixelSize: 9
+                                        font.family: "monospace"
+                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                                background: Rectangle {
+                                    color: highlighted
+                                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
+                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
+                                }
+                            }
+                        }
+
+                        Button {
+                            id: browseExcelBtn
+                            height: 28
+                            background: Rectangle {
+                                radius: 6
+                                color: browseExcelBtn.hovered
+                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
+                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
+                                border.color: "#40c057"
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: "📊 Browse (.xlsx)"
+                                font.bold: true
+                                font.pixelSize: 10
+                                color: "#40c057"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: 8
+                                rightPadding: 8
+                            }
+                            onClicked: detailsRoot.browseExcelFileRequested()
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        // Per-Station Correlated Attenuation Badges & JSON Preview Buttons
+                        Repeater {
+                            model: detailsRoot.stationCorrelationModel
+
+                            Rectangle {
+                                height: 28
+                                width: stCorrPillRow.implicitWidth + 14
+                                radius: 6
+                                color: detailsRoot.lightMode ? "#f8f9fa" : "#10131c"
+                                border.color: model.status === "error"
+                                              ? "#fa5252"
+                                              : ((model.status === "done" || model.status === "warning")
+                                                 ? "#40c057"
+                                                 : (detailsRoot.lightMode ? "#dee2e6" : "#252a3a"))
+                                border.width: 1
+
+                                RowLayout {
+                                    id: stCorrPillRow
+                                    anchors.centerIn: parent
+                                    spacing: 6
+
+                                    Rectangle {
+                                        width: 7; height: 7; radius: 3.5
+                                        color: detailsRoot.getStationColor(index)
+                                    }
+
+                                    Text {
+                                        text: model.stationName + ":"
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        color: detailsRoot.getStationColor(index)
+                                    }
+
+                                    Text {
+                                        text: {
+                                            if (model.status === "error") return "Error"
+                                            if (model.status === "running") return "Correlating..."
+                                            if (model.status === "done" || model.status === "warning") {
+                                                var pk = model.peakAttenuationDb !== undefined ? Number(model.peakAttenuationDb) : 0.0
+                                                return "-" + pk.toFixed(1) + " dB peak"
+                                            }
+                                            return "0.0 dB extra"
+                                        }
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        font.family: "monospace"
+                                        color: (model.status === "done" || model.status === "warning")
+                                               ? "#fcc419"
+                                               : (detailsRoot.lightMode ? "#6c757d" : "#909296")
+                                    }
+
+                                    Button {
+                                        id: corrInMiniBtn
+                                        height: 20
+                                        visible: model.inputJson && model.inputJson.length > 0
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: corrInMiniBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a") : "transparent"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "{ } In"
+                                            font.bold: true
+                                            font.pixelSize: 8
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                            leftPadding: 4; rightPadding: 4
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        onClicked: {
+                                            detailsRoot.previewJsonModalRequested(
+                                                qsTr("Correlation Input JSON — ") + model.stationName,
+                                                qsTr("Per-station factor arrays sent to session correlation module"),
+                                                model.inputJson,
+                                                "correlation_input_" + (model.stationId || "station") + ".json"
+                                            )
+                                        }
+                                    }
+
+                                    Button {
+                                        id: corrOutMiniBtn
+                                        height: 20
+                                        visible: (model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0)
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: corrOutMiniBtn.hovered ? (detailsRoot.lightMode ? "#fff3bf" : "#3b2e14") : "transparent"
+                                            border.color: model.status === "error" ? "#fa5252" : "#f59f00"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "{ } Out"
+                                            font.bold: true
+                                            font.pixelSize: 8
+                                            color: model.status === "error" ? "#fa5252" : "#fcc419"
+                                            leftPadding: 4; rightPadding: 4
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        onClicked: {
+                                            var corrModName = detailsRoot.selectedCorrelationModulePath ? detailsRoot.selectedCorrelationModulePath.split("/").pop() : "step_correlation.py"
+                                            detailsRoot.previewJsonModalRequested(
+                                                qsTr("Predicted Attenuation Output JSON — ") + model.stationName,
+                                                "Correlated via " + corrModName + " (" + (model.expectedSamples || 0) + " visible samples)",
+                                                (model.outputJson && model.outputJson.length > 0) ? model.outputJson : model.errorText,
+                                                "predicted_attenuation_" + (model.stationId || "station") + ".json"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- CONTROLS & METRIC TABS ---
             RowLayout {
                 Layout.fillWidth: true
@@ -503,9 +1630,16 @@ Rectangle {
                                             return "Peak SNR " + (modelData.maxSnrDb > -900 ? modelData.maxSnrDb.toFixed(1) + " dB" : "N/A")
                                         }
                                         if (!modelData.isVisible[idx]) return "Below Horizon"
-                                        if (detailsRoot.activeMetric === "snr") return modelData.snrDb[idx].toFixed(1) + " dB (El: " + modelData.elevationDeg[idx].toFixed(1) + "°)"
+                                        var extraLoss = (modelData.extraAttenuationDb && idx < modelData.extraAttenuationDb.length) ? Number(modelData.extraAttenuationDb[idx]) : 0.0
+                                        if (detailsRoot.activeMetric === "snr") {
+                                            var lossTag = extraLoss > 0.001 ? (" (-" + extraLoss.toFixed(1) + " dB factor)") : ""
+                                            return modelData.snrDb[idx].toFixed(1) + " dB" + lossTag + " (El: " + modelData.elevationDeg[idx].toFixed(1) + "°)"
+                                        }
                                         if (detailsRoot.activeMetric === "fspl") return modelData.fsplLossDb[idx].toFixed(1) + " dB"
-                                        if (detailsRoot.activeMetric === "totalloss") return modelData.totalLossDb[idx].toFixed(1) + " dB"
+                                        if (detailsRoot.activeMetric === "totalloss") {
+                                            var extraTag = extraLoss > 0.001 ? (" (+" + extraLoss.toFixed(1) + " dB factor)") : ""
+                                            return modelData.totalLossDb[idx].toFixed(1) + " dB" + extraTag
+                                        }
                                         return modelData.elevationDeg[idx].toFixed(1) + "°"
                                     }
                                 }
@@ -703,12 +1837,40 @@ Rectangle {
                             var station = data.stations[sIdx]
                             var col = detailsRoot.getStationColor(sIdx)
                             var vec = []
-                            if (metric === "snr") vec = station.snrDb
-                            else if (metric === "fspl") vec = station.fsplLossDb
-                            else if (metric === "totalloss") vec = station.totalLossDb
-                            else if (metric === "elevation") vec = station.elevationDeg
+                            var baseVec = null
+                            if (metric === "snr") {
+                                vec = station.snrDb
+                                if (station.hasExtraAttenuation && station.baselineSnrDb) baseVec = station.baselineSnrDb
+                            } else if (metric === "fspl") {
+                                vec = station.fsplLossDb
+                            } else if (metric === "totalloss") {
+                                vec = station.totalLossDb
+                                if (station.hasExtraAttenuation && station.baselineTotalLossDb) baseVec = station.baselineTotalLossDb
+                            } else if (metric === "elevation") {
+                                vec = station.elevationDeg
+                            }
 
                             if (!vec || vec.length !== N) continue
+
+                            // Optional Dashed Baseline Curve (when extra factor attenuation is active)
+                            if (baseVec && baseVec.length === N) {
+                                ctx.save()
+                                ctx.beginPath()
+                                ctx.strokeStyle = col
+                                ctx.globalAlpha = 0.42
+                                ctx.lineWidth = 1.4
+                                ctx.setLineDash([4, 3])
+                                for (var kb = 0; kb < N; kb++) {
+                                    var bVal = baseVec[kb]
+                                    if (metric === "snr" && !station.isVisible[kb]) bVal = yMin
+                                    var bx = mapX(kb)
+                                    var by = mapY(bVal)
+                                    if (kb === 0) ctx.moveTo(bx, by)
+                                    else ctx.lineTo(bx, by)
+                                }
+                                ctx.stroke()
+                                ctx.restore()
+                            }
 
                             // Fill
                             if (metric === "snr" || metric === "elevation") {
@@ -803,87 +1965,6 @@ Rectangle {
                         onExited: {
                             detailsRoot.hoveredSampleIndex = -1
                             embeddedPlotCanvas.requestPaint()
-                        }
-                    }
-                }
-            }
-
-            // --- PARTICIPATING GROUND STATIONS BREAKDOWN CARDS ---
-            Label {
-                text: qsTr("Participating Ground Stations Breakdown")
-                font.bold: true
-                font.pixelSize: 13
-                color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
-
-                Repeater {
-                    model: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses) ? detailsRoot.sessionEvent.stationPasses : []
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: 90
-                        Layout.preferredHeight: 90
-                        radius: 8
-                        color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                        border.color: detailsRoot.getStationColor(index)
-                        border.width: 1
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 4
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Rectangle {
-                                    width: 8; height: 8; radius: 4
-                                    color: detailsRoot.getStationColor(index)
-                                }
-                                Label {
-                                    text: modelData.stationName
-                                    font.bold: true
-                                    font.pixelSize: 12
-                                    color: detailsRoot.getStationColor(index)
-                                }
-                                Item { Layout.fillWidth: true }
-                                Text {
-                                    text: "Visible: " + modelData.durationFormatted
-                                    font.bold: true
-                                    font.pixelSize: 11
-                                    color: detailsRoot.lightMode ? "#212529" : "#ffffff"
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: "AOS: " + modelData.aosUtc + " (" + modelData.aosAzimuthCompass + ") → LOS: " + modelData.losUtc + " (" + modelData.losAzimuthCompass + ")"
-                                    font.pixelSize: 10
-                                    font.family: "monospace"
-                                    color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: "TCA: " + modelData.tcaUtc + " (" + modelData.tcaAzimuthCompass + ") • Peak El: " + modelData.maxElevationDeg + "°"
-                                    font.bold: true
-                                    font.pixelSize: 10
-                                    color: modelData.maxElevationDeg >= 50.0 ? "#2f9e44" : "#f59f00"
-                                }
-                                Item { Layout.fillWidth: true }
-                                Label {
-                                    text: "TCA Range: " + Math.round(modelData.tcaRangeKm) + " km"
-                                    font.pixelSize: 10
-                                    font.family: "monospace"
-                                    color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                }
-                            }
                         }
                     }
                 }
@@ -1601,1076 +2682,32 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
 
-            // --- 1. PYTHON MODULAR SIGNAL LOSS FACTORS SECTION ---
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: pythonSectionCol.implicitHeight + 28
-                Layout.preferredHeight: implicitHeight
-                radius: 10
-                color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
-                border.width: 1
-
-                ColumnLayout {
-                    id: pythonSectionCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 14
-                    spacing: 12
-
-                    // Section Title & Runtime Status
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Rectangle {
-                            width: 28
-                            height: 28
-                            radius: 7
-                            color: detailsRoot.lightMode ? "#e7f5ff" : "#14233c"
-                            border.color: "#339af0"
-                            border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "🐍"
-                                font.pixelSize: 15
-                            }
-                        }
-
-                        ColumnLayout {
-                            spacing: 1
-                            Label {
-                                text: qsTr("Modular Signal Loss Factors (Python Calculation Modules)")
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                            }
-                            Label {
-                                text: qsTr("Attach external Python modules to evaluate environmental factors (e.g., LOS rain density) for this session.")
-                                font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        // Python runtime badge
-                        Rectangle {
-                            height: 24
-                            width: pyBadgeRow.implicitWidth + 14
-                            radius: 12
-                            color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                                   ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
-                                   : (detailsRoot.lightMode ? "#fff5f5" : "#2d1418")
-                            border.color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                                          ? "#40c057"
-                                          : "#fa5252"
-                            border.width: 1
-
-                            RowLayout {
-                                id: pyBadgeRow
-                                anchors.centerIn: parent
-                                spacing: 5
-
-                                Rectangle {
-                                    width: 6; height: 6; radius: 3
-                                    color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
-                                }
-                                Text {
-                                    text: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                                          ? (detailsRoot.pythonEnvInfo.version + (detailsRoot.pythonEnvInfo.isVenv ? " (venv)" : " (Global)"))
-                                          : "Python Not Found"
-                                    font.bold: true
-                                    font.pixelSize: 10
-                                    color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
-                                }
-                            }
-                        }
-                    }
-
-                    // Toolbar: Select from Recent Modules | Browse Computer | Inspect Session Input JSON | Run All
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Label {
-                            text: qsTr("Recent Modules:")
-                            font.bold: true
-                            font.pixelSize: 11
-                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                        }
-
-                        ComboBox {
-                            id: recentModulesCombo
-                            Layout.preferredWidth: 230
-                            height: 32
-                            model: detailsRoot.recentModulesList
-                            textRole: "name"
-                            valueRole: "path"
-                            font.pixelSize: 11
-
-                            delegate: ItemDelegate {
-                                width: recentModulesCombo.width
-                                contentItem: ColumnLayout {
-                                    spacing: 1
-                                    Text {
-                                        text: modelData.name
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    Text {
-                                        text: modelData.path
-                                        font.pixelSize: 9
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: highlighted
-                                           ? (detailsRoot.lightMode ? "#e7f5ff" : "#1e293b")
-                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                }
-                            }
-                        }
-
-                        Button {
-                            id: addRecentBtn
-                            height: 32
-                            enabled: detailsRoot.recentModulesList && detailsRoot.recentModulesList.length > 0
-                            background: Rectangle {
-                                radius: 6
-                                color: addRecentBtn.hovered ? "#1c7ed6" : "#228be6"
-                                opacity: addRecentBtn.enabled ? 1.0 : 0.5
-                            }
-                            contentItem: Text {
-                                text: "＋ Add Selected"
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#ffffff"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                                rightPadding: 10
-                            }
-                            onClicked: {
-                                if (recentModulesCombo.currentIndex >= 0 && recentModulesCombo.currentIndex < detailsRoot.recentModulesList.length) {
-                                    var item = detailsRoot.recentModulesList[recentModulesCombo.currentIndex]
-                                    detailsRoot.addRecentModuleRequested(item.path)
-                                }
-                            }
-                        }
-
-                        Button {
-                            id: browseModBtn
-                            height: 32
-                            background: Rectangle {
-                                radius: 6
-                                color: browseModBtn.hovered
-                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                       : (detailsRoot.lightMode ? "#f1f3f5" : "#1e2230")
-                                border.color: "#339af0"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: "📂 Browse Module (.py)..."
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#339af0"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                                rightPadding: 10
-                            }
-                            onClicked: detailsRoot.browseModuleRequested()
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Button {
-                            id: previewInputBtn
-                            height: 32
-                            background: Rectangle {
-                                radius: 6
-                                color: detailsRoot.showInputJsonPreview
-                                       ? (detailsRoot.lightMode ? "#d0ebff" : "#1c3352")
-                                       : (previewInputBtn.hovered
-                                          ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                          : "transparent")
-                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: detailsRoot.showInputJsonPreview ? "{ } Hide Input JSON" : "{ } View Input JSON"
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                                rightPadding: 10
-                            }
-                            onClicked: {
-                                if (!detailsRoot.showInputJsonPreview) {
-                                    detailsRoot.generateInputJsonPreviewRequested()
-                                }
-                                detailsRoot.showInputJsonPreview = !detailsRoot.showInputJsonPreview
-                            }
-                        }
-
-                        Button {
-                            id: runAllBtn
-                            height: 32
-                            enabled: detailsRoot.addedModulesModel && detailsRoot.addedModulesModel.count > 0
-                            background: Rectangle {
-                                radius: 6
-                                color: runAllBtn.hovered ? "#2b8a3e" : "#2f9e44"
-                                opacity: runAllBtn.enabled ? 1.0 : 0.45
-                            }
-                            contentItem: Text {
-                                text: "▶ Run All Modules"
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#ffffff"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 12
-                                rightPadding: 12
-                            }
-                            onClicked: detailsRoot.runAllModulesRequested()
-                        }
-                    }
-
-                    // Collapsible Session Input JSON Preview
-                    Rectangle {
-                        visible: detailsRoot.showInputJsonPreview
-                        Layout.fillWidth: true
-                        implicitHeight: visible ? 170 : 0
-                        Layout.preferredHeight: implicitHeight
-                        radius: 8
-                        color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1017"
-                        border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
-                        border.width: 1
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 4
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Generated Session Prediction Input JSON (sent to Python stdin):")
-                                    font.bold: true
-                                    font.pixelSize: 10
-                                    color: "#339af0"
-                                }
-                                Item { Layout.fillWidth: true }
-                            }
-
-                            ScrollView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-
-                                TextArea {
-                                    text: detailsRoot.sessionInputJsonPreview
-                                    readOnly: true
-                                    selectByMouse: true
-                                    font.family: "monospace"
-                                    font.pixelSize: 10
-                                    color: detailsRoot.lightMode ? "#212529" : "#e9ecef"
-                                    background: null
-                                }
-                            }
-                        }
-                    }
-
-                    // Empty state when no modules added yet
-                    Rectangle {
-                        visible: !detailsRoot.addedModulesModel || detailsRoot.addedModulesModel.count === 0
-                        Layout.fillWidth: true
-                        implicitHeight: visible ? 68 : 0
-                        Layout.preferredHeight: implicitHeight
-                        radius: 8
-                        color: detailsRoot.lightMode ? "#f8f9fa" : "#10131c"
-                        border.color: detailsRoot.lightMode ? "#e9ecef" : "#1e2433"
-                        border.width: 1
-
-                        RowLayout {
-                            anchors.centerIn: parent
-                            spacing: 10
-                            Text {
-                                text: "🧩"
-                                font.pixelSize: 18
-                            }
-                            Label {
-                                text: qsTr("No Python modules attached to this session yet. Select a module from Recent Modules or click 'Browse Module (.py)...' to add one.")
-                                font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                            }
-                        }
-                    }
-
-                    // List of Added Factor Calculation Modules for this Session
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-                        visible: detailsRoot.addedModulesModel && detailsRoot.addedModulesModel.count > 0
-
-                        Repeater {
-                            model: detailsRoot.addedModulesModel
-
-                            Rectangle {
-                                id: modCard
-                                Layout.fillWidth: true
-                                implicitHeight: modCardCol.implicitHeight + 20
-                                Layout.preferredHeight: implicitHeight
-                                radius: 8
-                                color: detailsRoot.lightMode ? "#f8f9fa" : "#10131c"
-                                border.color: model.status === "error"
-                                              ? "#fa5252"
-                                              : (model.status === "done"
-                                                 ? "#40c057"
-                                                 : (model.status === "running"
-                                                    ? "#339af0"
-                                                    : (detailsRoot.lightMode ? "#dee2e6" : "#252a3a")))
-                                border.width: 1
-
-                                ColumnLayout {
-                                    id: modCardCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: 10
-                                    spacing: 8
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 10
-
-                                        Text {
-                                            text: model.status === "error"
-                                                  ? "⚠️"
-                                                  : (model.status === "done"
-                                                     ? "✅"
-                                                     : (model.status === "running" ? "⏳" : "🐍"))
-                                            font.pixelSize: 15
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 1
-
-                                            RowLayout {
-                                                spacing: 8
-                                                Label {
-                                                    text: model.name
-                                                    font.bold: true
-                                                    font.pixelSize: 12
-                                                    color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                                }
-
-                                                Rectangle {
-                                                    height: 18
-                                                    width: statusLbl.implicitWidth + 12
-                                                    radius: 9
-                                                    color: model.status === "error"
-                                                           ? "#2d1418"
-                                                           : (model.status === "done"
-                                                              ? "#132d1d"
-                                                              : (model.status === "running" ? "#14233c" : "#252a38"))
-                                                    Text {
-                                                        id: statusLbl
-                                                        anchors.centerIn: parent
-                                                        text: model.status === "error"
-                                                              ? "Error"
-                                                              : (model.status === "done"
-                                                                 ? "Output Ready"
-                                                                 : (model.status === "running" ? "Running..." : "Ready"))
-                                                        font.bold: true
-                                                        font.pixelSize: 9
-                                                        color: model.status === "error"
-                                                               ? "#ff6b6b"
-                                                               : (model.status === "done"
-                                                                  ? "#51cf66"
-                                                                  : (model.status === "running" ? "#4dabf7" : "#adb5bd"))
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                text: model.path
-                                                font.pixelSize: 10
-                                                font.family: "monospace"
-                                                elide: Text.ElideMiddle
-                                                Layout.fillWidth: true
-                                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                            }
-                                        }
-
-                                        Button {
-                                            id: runSingleBtn
-                                            height: 28
-                                            enabled: model.status !== "running"
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: runSingleBtn.hovered ? "#1c7ed6" : "#228be6"
-                                                opacity: runSingleBtn.enabled ? 1.0 : 0.5
-                                            }
-                                            contentItem: Text {
-                                                text: model.status === "running" ? "Running..." : "▶ Run Module"
-                                                font.bold: true
-                                                font.pixelSize: 11
-                                                color: "#ffffff"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                leftPadding: 10
-                                                rightPadding: 10
-                                            }
-                                            onClicked: {
-                                                detailsRoot.runModuleRequested(index, model.path)
-                                            }
-                                        }
-
-                                        Button {
-                                            id: toggleJsonBtn
-                                            height: 28
-                                            visible: (model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0)
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: toggleJsonBtn.hovered
-                                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                                       : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                                border.width: 1
-                                            }
-                                            contentItem: Text {
-                                                text: model.expanded ? "▲ Hide Output JSON" : "▼ Show Output JSON"
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                leftPadding: 8
-                                                rightPadding: 8
-                                            }
-                                            onClicked: {
-                                                detailsRoot.addedModulesModel.setProperty(index, "expanded", !model.expanded)
-                                            }
-                                        }
-
-                                        Button {
-                                            id: removeModBtn
-                                            width: 28
-                                            height: 28
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: removeModBtn.hovered ? "#c92a2a" : "transparent"
-                                            }
-                                            contentItem: Text {
-                                                text: "✕"
-                                                font.bold: true
-                                                font.pixelSize: 12
-                                                color: removeModBtn.hovered ? "#ffffff" : (detailsRoot.lightMode ? "#868e96" : "#909296")
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                            }
-                                            onClicked: {
-                                                detailsRoot.removeAddedModuleRequested(index)
-                                            }
-                                        }
-                                    }
-
-                                    // Output JSON / Error Viewer Box
-                                    Rectangle {
-                                        visible: model.expanded && ((model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0))
-                                        Layout.fillWidth: true
-                                        implicitHeight: visible ? 210 : 0
-                                        Layout.preferredHeight: implicitHeight
-                                        radius: 6
-                                        color: detailsRoot.lightMode ? "#ffffff" : "#0b0d13"
-                                        border.color: model.status === "error" ? "#fa5252" : (detailsRoot.lightMode ? "#dee2e6" : "#222836")
-                                        border.width: 1
-
-                                        ColumnLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
-                                            spacing: 4
-
-                                            RowLayout {
-                                                Layout.fillWidth: true
-                                                Label {
-                                                    text: model.status === "error"
-                                                          ? qsTr("Module Execution Error:")
-                                                          : qsTr("Module Output JSON:")
-                                                    font.bold: true
-                                                    font.pixelSize: 10
-                                                    color: model.status === "error" ? "#fa5252" : "#40c057"
-                                                }
-                                                Item { Layout.fillWidth: true }
-                                            }
-
-                                            ScrollView {
-                                                Layout.fillWidth: true
-                                                Layout.fillHeight: true
-                                                clip: true
-
-                                                TextArea {
-                                                    text: model.status === "error" ? model.errorText : model.outputJson
-                                                    readOnly: true
-                                                    selectByMouse: true
-                                                    font.family: "monospace"
-                                                    font.pixelSize: 11
-                                                    color: model.status === "error"
-                                                           ? "#ff8787"
-                                                           : (detailsRoot.lightMode ? "#212529" : "#d0ebff")
-                                                    background: null
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+    function syncCorrelationCombos() {
+        if (recentCorrelationModulesList && selectedCorrelationModulePath) {
+            for (var i = 0; i < recentCorrelationModulesList.length; i++) {
+                if (recentCorrelationModulesList[i].path === selectedCorrelationModulePath) {
+                    corrModuleCombo.currentIndex = i
+                    break
                 }
             }
-
-            // --- 2. PREDICT ATTENUATION (CORRELATION MODULES PER GROUND STATION) ---
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: correlationSectionCol.implicitHeight + 28
-                Layout.preferredHeight: implicitHeight
-                radius: 10
-                color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
-                border.width: 1
-
-                ColumnLayout {
-                    id: correlationSectionCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 14
-                    spacing: 12
-
-                    // Section Header
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Rectangle {
-                            width: 28
-                            height: 28
-                            radius: 7
-                            color: detailsRoot.lightMode ? "#fff3bf" : "#2d2411"
-                            border.color: "#f59f00"
-                            border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "📊"
-                                font.pixelSize: 15
-                            }
-                        }
-
-                        ColumnLayout {
-                            spacing: 1
-                            Label {
-                                text: qsTr("Predict Attenuation (Python Correlation Modules per Station)")
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                            }
-                            Label {
-                                text: qsTr("Correlate calculated environmental factors with an Excel (.xlsx) lookup table or model to predict total attenuation (dB) for each station in this session.")
-                                font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Button {
-                            id: predictAllStationsBtn
-                            height: 32
-                            enabled: detailsRoot.stationCorrelationModel && detailsRoot.stationCorrelationModel.count > 0
-                            background: Rectangle {
-                                radius: 6
-                                color: predictAllStationsBtn.hovered ? "#e67700" : "#f59f00"
-                                opacity: predictAllStationsBtn.enabled ? 1.0 : 0.45
-                            }
-                            contentItem: Text {
-                                text: "▶ Predict Attenuation (All Stations)"
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#ffffff"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 12
-                                rightPadding: 12
-                            }
-                            onClicked: detailsRoot.predictAllStationsAttenuationRequested()
-                        }
-                    }
-
-                    // Correlation Module (.py) & Excel Table (.xlsx) Selectors
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Label {
-                            text: qsTr("Correlation Module:")
-                            font.bold: true
-                            font.pixelSize: 11
-                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                        }
-
-                        ComboBox {
-                            id: corrModuleCombo
-                            Layout.preferredWidth: 210
-                            height: 32
-                            model: detailsRoot.recentCorrelationModulesList
-                            textRole: "name"
-                            valueRole: "path"
-                            font.pixelSize: 11
-
-                            onActivated: function(idx) {
-                                if (idx >= 0 && idx < detailsRoot.recentCorrelationModulesList.length) {
-                                    detailsRoot.correlationModuleSelected(detailsRoot.recentCorrelationModulesList[idx].path)
-                                }
-                            }
-
-                            delegate: ItemDelegate {
-                                width: corrModuleCombo.width
-                                contentItem: ColumnLayout {
-                                    spacing: 1
-                                    Text {
-                                        text: modelData.name
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    Text {
-                                        text: modelData.path
-                                        font.pixelSize: 9
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: highlighted
-                                           ? (detailsRoot.lightMode ? "#fff3bf" : "#2d2411")
-                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                }
-                            }
-                        }
-
-                        Button {
-                            id: browseCorrModBtn
-                            height: 32
-                            background: Rectangle {
-                                radius: 6
-                                color: browseCorrModBtn.hovered
-                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                       : (detailsRoot.lightMode ? "#f1f3f5" : "#1e2230")
-                                border.color: "#f59f00"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: "📂 Browse Correlation (.py)..."
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#f59f00"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                                rightPadding: 10
-                            }
-                            onClicked: detailsRoot.browseCorrelationModuleRequested()
-                        }
-
-                        Rectangle {
-                            width: 1
-                            height: 22
-                            color: detailsRoot.lightMode ? "#dee2e6" : "#2d3345"
-                        }
-
-                        Label {
-                            text: qsTr("Excel Table:")
-                            font.bold: true
-                            font.pixelSize: 11
-                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                        }
-
-                        ComboBox {
-                            id: excelFileCombo
-                            Layout.preferredWidth: 210
-                            height: 32
-                            model: detailsRoot.recentExcelFilesList
-                            textRole: "name"
-                            valueRole: "path"
-                            font.pixelSize: 11
-
-                            onActivated: function(idx) {
-                                if (idx >= 0 && idx < detailsRoot.recentExcelFilesList.length) {
-                                    detailsRoot.excelFileSelected(detailsRoot.recentExcelFilesList[idx].path)
-                                }
-                            }
-
-                            delegate: ItemDelegate {
-                                width: excelFileCombo.width
-                                contentItem: ColumnLayout {
-                                    spacing: 1
-                                    Text {
-                                        text: modelData.name
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    Text {
-                                        text: modelData.path
-                                        font.pixelSize: 9
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: highlighted
-                                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
-                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                }
-                            }
-                        }
-
-                        Button {
-                            id: browseExcelBtn
-                            height: 32
-                            background: Rectangle {
-                                radius: 6
-                                color: browseExcelBtn.hovered
-                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                       : (detailsRoot.lightMode ? "#f1f3f5" : "#1e2230")
-                                border.color: "#40c057"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: "📊 Browse Excel (.xlsx)..."
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#40c057"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 10
-                                rightPadding: 10
-                            }
-                            onClicked: detailsRoot.browseExcelFileRequested()
-                        }
-
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    // Dynamic "Predict Attenuation" Cards for each Ground Station in the Session
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-                        visible: detailsRoot.stationCorrelationModel && detailsRoot.stationCorrelationModel.count > 0
-
-                        Repeater {
-                            model: detailsRoot.stationCorrelationModel
-
-                            Rectangle {
-                                id: stCorrCard
-                                Layout.fillWidth: true
-                                implicitHeight: stCorrCol.implicitHeight + 20
-                                Layout.preferredHeight: implicitHeight
-                                radius: 8
-                                color: detailsRoot.lightMode ? "#f8f9fa" : "#10131c"
-                                border.color: model.status === "error"
-                                              ? "#fa5252"
-                                              : (model.status === "warning"
-                                                 ? "#f59f00"
-                                                 : (model.status === "done"
-                                                    ? "#40c057"
-                                                    : (model.status === "running"
-                                                       ? "#339af0"
-                                                       : detailsRoot.getStationColor(index))))
-                                border.width: 1
-
-                                ColumnLayout {
-                                    id: stCorrCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: 10
-                                    spacing: 8
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 10
-
-                                        Rectangle {
-                                            width: 10
-                                            height: 10
-                                            radius: 5
-                                            color: detailsRoot.getStationColor(index)
-                                        }
-
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 2
-
-                                            RowLayout {
-                                                spacing: 8
-
-                                                Label {
-                                                    text: model.stationName
-                                                    font.bold: true
-                                                    font.pixelSize: 13
-                                                    color: detailsRoot.getStationColor(index)
-                                                }
-
-                                                Rectangle {
-                                                    height: 18
-                                                    width: corrStatusLbl.implicitWidth + 12
-                                                    radius: 9
-                                                    color: model.status === "error"
-                                                           ? "#2d1418"
-                                                           : (model.status === "warning"
-                                                              ? "#2d2411"
-                                                              : (model.status === "done"
-                                                                 ? "#132d1d"
-                                                                 : (model.status === "running" ? "#14233c" : "#252a38")))
-                                                    Text {
-                                                        id: corrStatusLbl
-                                                        anchors.centerIn: parent
-                                                        text: model.status === "error"
-                                                              ? "Error"
-                                                              : (model.status === "warning"
-                                                                 ? "Warning"
-                                                                 : (model.status === "done"
-                                                                    ? "Attenuation Predicted"
-                                                                    : (model.status === "running" ? "Predicting..." : "Ready")))
-                                                        font.bold: true
-                                                        font.pixelSize: 9
-                                                        color: model.status === "error"
-                                                               ? "#ff6b6b"
-                                                               : (model.status === "warning"
-                                                                  ? "#fcc419"
-                                                                  : (model.status === "done"
-                                                                     ? "#51cf66"
-                                                                     : (model.status === "running" ? "#4dabf7" : "#adb5bd")))
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                text: "Module: " + (detailsRoot.selectedCorrelationModulePath ? detailsRoot.selectedCorrelationModulePath.split("/").pop() : "step_correlation.py")
-                                                      + "  •  Excel: " + (detailsRoot.selectedExcelFilePath ? detailsRoot.selectedExcelFilePath.split("/").pop() : "attenuation_table.xlsx")
-                                                font.pixelSize: 10
-                                                font.family: "monospace"
-                                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                            }
-                                        }
-
-                                        Button {
-                                            id: predictSingleBtn
-                                            height: 30
-                                            enabled: model.status !== "running"
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: predictSingleBtn.hovered ? "#e67700" : "#f59f00"
-                                                opacity: predictSingleBtn.enabled ? 1.0 : 0.5
-                                            }
-                                            contentItem: Text {
-                                                text: model.status === "running" ? "Predicting..." : "▶ Predict Attenuation"
-                                                font.bold: true
-                                                font.pixelSize: 11
-                                                color: "#ffffff"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                leftPadding: 12
-                                                rightPadding: 12
-                                            }
-                                            onClicked: {
-                                                detailsRoot.predictStationAttenuationRequested(index)
-                                            }
-                                        }
-
-                                        Button {
-                                            id: toggleCorrInputBtn
-                                            height: 28
-                                            visible: model.inputJson && model.inputJson.length > 0
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: toggleCorrInputBtn.hovered
-                                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                                       : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                                border.width: 1
-                                            }
-                                            contentItem: Text {
-                                                text: model.showInput ? "{ } Hide Input JSON" : "{ } View Input JSON"
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                leftPadding: 8
-                                                rightPadding: 8
-                                            }
-                                            onClicked: {
-                                                detailsRoot.stationCorrelationModel.setProperty(index, "showInput", !model.showInput)
-                                            }
-                                        }
-
-                                        Button {
-                                            id: toggleCorrOutputBtn
-                                            height: 28
-                                            visible: (model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0)
-                                            background: Rectangle {
-                                                radius: 6
-                                                color: toggleCorrOutputBtn.hovered
-                                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                                       : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                                border.width: 1
-                                            }
-                                            contentItem: Text {
-                                                text: model.expanded ? "▲ Hide Output JSON" : "▼ Show Output JSON"
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                leftPadding: 8
-                                                rightPadding: 8
-                                            }
-                                            onClicked: {
-                                                detailsRoot.stationCorrelationModel.setProperty(index, "expanded", !model.expanded)
-                                            }
-                                        }
-                                    }
-
-                                    // Collapsible Correlation Input JSON Viewer
-                                    Rectangle {
-                                        visible: model.showInput && model.inputJson && model.inputJson.length > 0
-                                        Layout.fillWidth: true
-                                        implicitHeight: visible ? 160 : 0
-                                        Layout.preferredHeight: implicitHeight
-                                        radius: 6
-                                        color: detailsRoot.lightMode ? "#ffffff" : "#0b0d13"
-                                        border.color: detailsRoot.lightMode ? "#dee2e6" : "#222836"
-                                        border.width: 1
-
-                                        ColumnLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
-                                            spacing: 4
-
-                                            Label {
-                                                text: "Correlation Input JSON (" + model.stationName + "):"
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                color: "#339af0"
-                                            }
-
-                                            ScrollView {
-                                                Layout.fillWidth: true
-                                                Layout.fillHeight: true
-                                                clip: true
-
-                                                TextArea {
-                                                    text: model.inputJson
-                                                    readOnly: true
-                                                    selectByMouse: true
-                                                    font.family: "monospace"
-                                                    font.pixelSize: 10
-                                                    color: detailsRoot.lightMode ? "#212529" : "#e9ecef"
-                                                    background: null
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Collapsible Correlation Output JSON Viewer
-                                    Rectangle {
-                                        visible: model.expanded && ((model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0))
-                                        Layout.fillWidth: true
-                                        implicitHeight: visible ? 210 : 0
-                                        Layout.preferredHeight: implicitHeight
-                                        radius: 6
-                                        color: detailsRoot.lightMode ? "#ffffff" : "#0b0d13"
-                                        border.color: model.status === "error"
-                                                      ? "#fa5252"
-                                                      : (model.status === "warning" ? "#f59f00" : (detailsRoot.lightMode ? "#dee2e6" : "#222836"))
-                                        border.width: 1
-
-                                        ColumnLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
-                                            spacing: 4
-
-                                            RowLayout {
-                                                Layout.fillWidth: true
-                                                Label {
-                                                    text: model.status === "error"
-                                                          ? ("Correlation Output JSON / Error (" + model.stationName + "):")
-                                                          : (model.status === "warning"
-                                                             ? ("Correlation Output JSON with Warning (" + model.stationName + "):")
-                                                             : ("Predicted Attenuation Output JSON (" + model.stationName + "):"))
-                                                    font.bold: true
-                                                    font.pixelSize: 10
-                                                    color: model.status === "error"
-                                                           ? "#fa5252"
-                                                           : (model.status === "warning" ? "#fcc419" : "#40c057")
-                                                }
-                                                Item { Layout.fillWidth: true }
-                                            }
-
-                                            ScrollView {
-                                                Layout.fillWidth: true
-                                                Layout.fillHeight: true
-                                                clip: true
-
-                                                TextArea {
-                                                    text: (model.outputJson && model.outputJson.length > 0) ? model.outputJson : model.errorText
-                                                    readOnly: true
-                                                    selectByMouse: true
-                                                    font.family: "monospace"
-                                                    font.pixelSize: 11
-                                                    color: model.status === "error"
-                                                           ? "#ff8787"
-                                                           : (model.status === "warning"
-                                                              ? "#ffe066"
-                                                              : (detailsRoot.lightMode ? "#212529" : "#d0ebff"))
-                                                    background: null
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+        }
+        if (recentExcelFilesList && selectedExcelFilePath) {
+            for (var j = 0; j < recentExcelFilesList.length; j++) {
+                if (recentExcelFilesList[j].path === selectedExcelFilePath) {
+                    excelFileCombo.currentIndex = j
+                    break
                 }
             }
         }
     }
+
+    onSelectedCorrelationModulePathChanged: syncCorrelationCombos()
+    onSelectedExcelFilePathChanged: syncCorrelationCombos()
+    onRecentCorrelationModulesListChanged: syncCorrelationCombos()
+    onRecentExcelFilesListChanged: syncCorrelationCombos()
 
     onSnrProfileDataChanged: {
         hoveredSampleIndex = -1
