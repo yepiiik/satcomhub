@@ -293,6 +293,26 @@ ApplicationWindow {
         accentColor: window.accentColor
     }
 
+    SessionPlanYamlViewer {
+        id: sessionPlanYamlViewer
+        lightMode: window.lightMode
+        onExportRequested: (yamlText) => {
+            var defaultName = (window.currentPlanningSession ? ("session_plan_pass_" + window.currentPlanningSession.passIndex + ".yaml") : "session_plan.yaml")
+            var path = stationManager.saveFileDialog(qsTr("Export Session Plan YAML"), defaultName, "YAML Files (*.yaml *.yml)")
+            if (path && path.length > 0) {
+                var ok = stationManager.writeTextFile(path, yamlText)
+                if (ok) {
+                    toastStack.showToast(qsTr("Session Plan saved to: ") + path, "success")
+                } else {
+                    toastStack.showToast(qsTr("Failed to save session plan file"), "error")
+                }
+            }
+        }
+        onCopyRequested: {
+            toastStack.showToast(qsTr("Session Plan YAML copied to clipboard"), "success")
+        }
+    }
+
     PassSnrPlotModal {
         id: snrPlotModal
         lightMode: window.lightMode
@@ -1103,6 +1123,35 @@ ApplicationWindow {
 
                 onPredictAllStationsAttenuationRequested: {
                     window.predictAllStationsAttenuation()
+                }
+
+                onPreviewSessionPlanYamlRequested: (params) => {
+                    if (!window.currentPlanningSession || !window.planningSnrData) {
+                        toastStack.showToast(qsTr("No active pass session data to generate plan"), "error")
+                        return
+                    }
+                    var yaml = propagator.generateSessionPlanYaml(window.currentPlanningSession, window.planningSnrData, params)
+                    sessionPlanYamlViewer.sessionTitle = (window.currentPlanningSession.satelliteName || "Satellite") + " - Pass #" + (window.currentPlanningSession.passIndex || 1)
+                    sessionPlanYamlViewer.yamlContent = yaml
+                    sessionPlanYamlViewer.open()
+                }
+
+                onExportSessionPlanYamlRequested: (params) => {
+                    if (!window.currentPlanningSession || !window.planningSnrData) {
+                        toastStack.showToast(qsTr("No active pass session data to generate plan"), "error")
+                        return
+                    }
+                    var yaml = propagator.generateSessionPlanYaml(window.currentPlanningSession, window.planningSnrData, params)
+                    var defaultName = (window.currentPlanningSession ? ("session_plan_pass_" + window.currentPlanningSession.passIndex + ".yaml") : "session_plan.yaml")
+                    var path = stationManager.saveFileDialog(qsTr("Export Session Plan YAML"), defaultName, "YAML Files (*.yaml *.yml)")
+                    if (path && path.length > 0) {
+                        var ok = stationManager.writeTextFile(path, yaml)
+                        if (ok) {
+                            toastStack.showToast(qsTr("Session Plan saved to: ") + path, "success")
+                        } else {
+                            toastStack.showToast(qsTr("Failed to save session plan file"), "error")
+                        }
+                    }
                 }
             }
 

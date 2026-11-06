@@ -55,6 +55,7 @@ qt_add_qml_module(appsatcomhub
         qml/components/CompactDoubleSpinBox.qml
         qml/components/StationDialog.qml
         qml/components/StationJsonViewer.qml
+        qml/components/SessionPlanYamlViewer.qml
         qml/components/VerticalNavBar.qml
         qml/components/SatelliteDialog.qml
         qml/components/ObjectsListSidebar.qml

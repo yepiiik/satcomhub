@@ -27,6 +27,106 @@ Rectangle {
     property string selectedCorrelationModulePath: ""
     property string selectedExcelFilePath: ""
 
+    // Session Plan & Transmission AMC parameters
+    property string selectedModulation: "QPSK"
+    property real bitsPerSymbol: 2.0
+    property real rolloffAlpha: 0.20
+    property real codeEfficiencyCoef: 1.00
+    property real carrierFreqMhz: (snrProfileData && snrProfileData.carrierFreqMhz) ? snrProfileData.carrierFreqMhz : 5840.0
+    property real channelBandwidthKhz: (snrProfileData && snrProfileData.channelBandwidthKhz) ? snrProfileData.channelBandwidthKhz : 10000.0
+
+    readonly property var modulationPresets: [
+        { name: "BPSK", bits: 1 },
+        { name: "QPSK", bits: 2 },
+        { name: "OQPSK", bits: 2 },
+        { name: "pi/4-QPSK", bits: 2 },
+        { name: "8PSK", bits: 3 },
+        { name: "8QAM", bits: 3 },
+        { name: "16APSK", bits: 4 },
+        { name: "16QAM", bits: 4 },
+        { name: "32APSK", bits: 5 },
+        { name: "32QAM", bits: 5 },
+        { name: "64APSK", bits: 6 },
+        { name: "64QAM", bits: 6 },
+        { name: "128APSK", bits: 7 },
+        { name: "256APSK", bits: 8 },
+        { name: "256QAM", bits: 8 }
+    ]
+
+    function deriveBitsPerSymbol(modStr) {
+        if (!modStr) return 2.0
+        var upper = modStr.trim().toUpperCase()
+        for (var i = 0; i < modulationPresets.length; i++) {
+            if (modulationPresets[i].name.toUpperCase() === upper) {
+                return modulationPresets[i].bits
+            }
+        }
+        var mMatch = upper.match(/^(\d+)/)
+        if (mMatch) {
+            var val = parseInt(mMatch[1], 10)
+            if (val > 1 && (val & (val - 1)) === 0) {
+                return Math.round(Math.log2(val))
+            }
+        }
+        return 2.0
+    }
+
+    // Exact formula from user screenshot:
+    // r_max = [1 / (bits_per_symbol * (1 + alpha))] * log2(1 + (10^(SNR_dB / 10) / Code_efficiency_coef))
+    function calculateRMaxFormula(snrDb, m, a, gamma) {
+        if (m <= 0 || (1 + a) <= 0 || gamma <= 0) return 0.0
+        if (snrDb <= -25.0) return 0.0
+        var snrLinear = Math.pow(10.0, snrDb / 10.0)
+        var arg = 1.0 + (snrLinear / gamma)
+        if (arg <= 1.0) return 0.0
+        var prefactor = 1.0 / (m * (1.0 + a))
+        var rMax = prefactor * (Math.log(arg) / Math.LN2)
+        return Math.max(0.0, rMax)
+    }
+
+    readonly property real currentPeakSnr: {
+        if (!snrProfileData || !snrProfileData.combinedSelectionSnrDb) return 0.0
+        var maxS = -999.0
+        var arr = snrProfileData.combinedSelectionSnrDb
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] > maxS) maxS = arr[i]
+        }
+        return maxS > -900.0 ? maxS : 0.0
+    }
+
+    readonly property real derivedPeakRMax: calculateRMaxFormula(currentPeakSnr, bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
+
+    readonly property real derivedMeanRMax: {
+        if (!snrProfileData || !snrProfileData.combinedSelectionSnrDb) return 0.0
+        var sum = 0.0, cnt = 0
+        var arr = snrProfileData.combinedSelectionSnrDb
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] > -20.0) {
+                sum += calculateRMaxFormula(arr[i], bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
+                cnt++
+            }
+        }
+        return cnt > 0 ? (sum / cnt) : 0.0
+    }
+
+    readonly property real derivedSymbolRateKbaud: (1.0 + rolloffAlpha) > 0 ? (channelBandwidthKhz / (1.0 + rolloffAlpha)) : channelBandwidthKhz
+    readonly property real derivedSpectralEfficiency: (bitsPerSymbol * derivedPeakRMax) / (1.0 + rolloffAlpha)
+    readonly property real derivedPeakBitrateMbps: (derivedSymbolRateKbaud * bitsPerSymbol * derivedPeakRMax) / 1000.0
+
+    function getTransmissionParams() {
+        return {
+            "modulation": detailsRoot.selectedModulation,
+            "bitsPerSymbol": detailsRoot.bitsPerSymbol,
+            "alpha": detailsRoot.rolloffAlpha,
+            "codeEfficiencyCoef": detailsRoot.codeEfficiencyCoef,
+            "carrierFreqMhz": detailsRoot.carrierFreqMhz,
+            "channelBandwidthKhz": detailsRoot.channelBandwidthKhz
+        }
+    }
+
+    signal previewSessionPlanYamlRequested(var transmissionParams)
+    signal exportSessionPlanYamlRequested(var transmissionParams)
+
     signal browseModuleRequested()
     signal addRecentModuleRequested(string modulePath)
     signal removeAddedModuleRequested(int index)
@@ -412,6 +512,33 @@ Rectangle {
                             }
                         }
                     }
+
+                    Rectangle { width: 1; height: 18; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
+
+                    RowLayout {
+                        spacing: 6
+                        Text {
+                            text: "📊 r_max:"
+                            font.bold: true
+                            font.pixelSize: 11
+                            color: "#fab005"
+                        }
+                        Text {
+                            font.bold: true
+                            font.family: "monospace"
+                            font.pixelSize: 11
+                            color: "#fab005"
+                            text: {
+                                var idx = detailsRoot.hoveredSampleIndex
+                                if (!detailsRoot.snrProfileData || idx < 0 || !detailsRoot.snrProfileData.combinedSelectionSnrDb || idx >= detailsRoot.snrProfileData.combinedSelectionSnrDb.length) {
+                                    return "Peak " + detailsRoot.derivedPeakRMax.toFixed(3)
+                                }
+                                var s = detailsRoot.snrProfileData.combinedSelectionSnrDb[idx]
+                                if (s <= -20.0) return "0.000 (LOS)"
+                                return detailsRoot.calculateRMaxFormula(s, detailsRoot.bitsPerSymbol, detailsRoot.rolloffAlpha, detailsRoot.codeEfficiencyCoef).toFixed(3)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -755,6 +882,719 @@ Rectangle {
                                     font.pixelSize: 10
                                     font.family: "monospace"
                                     color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- TRANSMISSION PARAMETERS & SESSION PLAN (AMC) ---
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: amcSectionCol.implicitHeight + 28
+                Layout.preferredHeight: implicitHeight
+                radius: 10
+                color: detailsRoot.lightMode ? "#ffffff" : "#141720"
+                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
+                border.width: 1
+
+                ColumnLayout {
+                    id: amcSectionCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 14
+                    spacing: 12
+
+                    // Header Row with Title and Action Buttons
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Rectangle {
+                            width: 30
+                            height: 30
+                            radius: 6
+                            color: "#e67700"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "📡"
+                                font.pixelSize: 15
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Label {
+                                text: qsTr("Transmission Parameters & Adaptive Coding (Session Plan)")
+                                font.bold: true
+                                font.pixelSize: 14
+                                color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
+                            }
+
+                            Label {
+                                text: qsTr("Configure modulation, roll-off α, and code efficiency to compute r_max and generate the YAML session plan")
+                                font.pixelSize: 11
+                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                            }
+                        }
+
+                        Button {
+                            id: previewPlanBtn
+                            text: qsTr("👁️ Preview YAML Plan")
+                            implicitHeight: 32
+                            background: Rectangle {
+                                radius: 6
+                                color: previewPlanBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#2c2e33") : (detailsRoot.lightMode ? "#f1f3f5" : "#1a1b1e")
+                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: previewPlanBtn.text
+                                font.bold: true
+                                font.pixelSize: 11
+                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: detailsRoot.previewSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
+                        }
+
+                        Button {
+                            id: exportPlanBtn
+                            text: qsTr("💾 Export Session Plan (.yaml)")
+                            implicitHeight: 32
+                            background: Rectangle {
+                                radius: 6
+                                color: exportPlanBtn.hovered ? "#d9480f" : "#e67700"
+                            }
+                            contentItem: Text {
+                                text: exportPlanBtn.text
+                                font.bold: true
+                                font.pixelSize: 11
+                                color: "#ffffff"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: detailsRoot.exportSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: detailsRoot.lightMode ? "#f1f3f5" : "#1e2230"
+                    }
+
+                    // Three-Column Parameter Inputs Grid
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        // 1. Modulation Scheme (QLineEdit + QCompleter)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 260
+                            spacing: 4
+
+                            RowLayout {
+                                spacing: 6
+                                Label {
+                                    text: qsTr("1. Modulation Scheme:")
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
+                                }
+                                Rectangle {
+                                    height: 18
+                                    width: modBitsBadgeText.implicitWidth + 10
+                                    radius: 4
+                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#102a45"
+                                    border.color: "#339af0"
+                                    border.width: 1
+                                    Text {
+                                        id: modBitsBadgeText
+                                        anchors.centerIn: parent
+                                        text: "m = " + detailsRoot.bitsPerSymbol.toFixed(0) + " bits/sym"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: "#339af0"
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                height: 32
+
+                                TextField {
+                                    id: modInput
+                                    anchors.fill: parent
+                                    anchors.rightMargin: 28
+                                    text: detailsRoot.selectedModulation
+                                    placeholderText: qsTr("Type or pick (e.g. QPSK, 16APSK)...")
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: detailsRoot.lightMode ? "#212529" : "#ffffff"
+                                    selectByMouse: true
+                                    background: Rectangle {
+                                        radius: 6
+                                        color: detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"
+                                        border.color: modInput.activeFocus ? "#339af0" : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
+                                        border.width: 1
+                                    }
+
+                                    onTextChanged: {
+                                        if (text !== detailsRoot.selectedModulation) {
+                                            detailsRoot.selectedModulation = text
+                                            detailsRoot.bitsPerSymbol = detailsRoot.deriveBitsPerSymbol(text)
+                                        }
+                                    }
+
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            modCompleterPopup.open()
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    id: modDropBtn
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: 26
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: modDropBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
+                                    }
+                                    contentItem: Text {
+                                        text: "▼"
+                                        font.pixelSize: 9
+                                        color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    onClicked: {
+                                        if (modCompleterPopup.opened) {
+                                            modCompleterPopup.close()
+                                        } else {
+                                            modInput.forceActiveFocus()
+                                            modCompleterPopup.open()
+                                        }
+                                    }
+                                }
+
+                                Popup {
+                                    id: modCompleterPopup
+                                    y: parent.height + 4
+                                    width: Math.max(parent.width, 240)
+                                    height: Math.min(260, completerCol.implicitHeight + 12)
+                                    padding: 6
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: detailsRoot.lightMode ? "#ffffff" : "#1c1f26"
+                                        border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                        border.width: 1
+                                    }
+
+                                    ScrollView {
+                                        anchors.fill: parent
+                                        clip: true
+                                        ColumnLayout {
+                                            id: completerCol
+                                            width: parent.width
+                                            spacing: 2
+
+                                            Repeater {
+                                                model: {
+                                                    var query = modInput.text.trim().toUpperCase()
+                                                    var matches = []
+                                                    for (var i = 0; i < detailsRoot.modulationPresets.length; i++) {
+                                                        var p = detailsRoot.modulationPresets[i]
+                                                        if (query === "" || p.name.toUpperCase().indexOf(query) !== -1) {
+                                                            matches.push(p)
+                                                        }
+                                                    }
+                                                    return matches.length > 0 ? matches : detailsRoot.modulationPresets
+                                                }
+
+                                                delegate: Rectangle {
+                                                    Layout.fillWidth: true
+                                                    height: 28
+                                                    radius: 4
+                                                    color: modPresetMouse.containsMouse ? (detailsRoot.lightMode ? "#e7f5ff" : "#1e293b") : "transparent"
+
+                                                    RowLayout {
+                                                        anchors.fill: parent
+                                                        anchors.leftMargin: 8
+                                                        anchors.rightMargin: 8
+                                                        spacing: 8
+
+                                                        Text {
+                                                            text: modelData.name
+                                                            font.bold: true
+                                                            font.pixelSize: 12
+                                                            color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
+                                                        }
+                                                        Item { Layout.fillWidth: true }
+                                                        Text {
+                                                            text: "log₂(M)=" + modelData.bits + " bits/sym"
+                                                            font.pixelSize: 10
+                                                            color: detailsRoot.lightMode ? "#6c757d" : "#94a3b8"
+                                                        }
+                                                    }
+
+                                                    MouseArea {
+                                                        id: modPresetMouse
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            modInput.text = modelData.name
+                                                            detailsRoot.selectedModulation = modelData.name
+                                                            detailsRoot.bitsPerSymbol = modelData.bits
+                                                            modCompleterPopup.close()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Roll-off Factor (alpha)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 230
+                            spacing: 4
+
+                            RowLayout {
+                                spacing: 6
+                                Label {
+                                    text: qsTr("2. Roll-off Factor (α):")
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
+                                }
+                                Rectangle {
+                                    height: 18
+                                    width: alphaBadgeText.implicitWidth + 10
+                                    radius: 4
+                                    color: detailsRoot.lightMode ? "#fff4e6" : "#382405"
+                                    border.color: "#f59f00"
+                                    border.width: 1
+                                    Text {
+                                        id: alphaBadgeText
+                                        anchors.centerIn: parent
+                                        text: "α = " + detailsRoot.rolloffAlpha.toFixed(2)
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: "#f59f00"
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Repeater {
+                                    model: [0.20, 0.25, 0.35]
+                                    delegate: Button {
+                                        id: alphaPillBtn
+                                        text: modelData.toFixed(2)
+                                        Layout.preferredWidth: 44
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 6
+                                            color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001
+                                                   ? (detailsRoot.lightMode ? "#f59f00" : "#e67700")
+                                                   : (alphaPillBtn.hovered ? (detailsRoot.lightMode ? "#f1f3f5" : "#2c2e33") : (detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"))
+                                            border.color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001 ? "#f59f00" : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: alphaPillBtn.text
+                                            font.bold: true
+                                            font.pixelSize: 11
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001 ? "#ffffff" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                        }
+                                        onClicked: detailsRoot.rolloffAlpha = modelData
+                                    }
+                                }
+
+                                RowLayout {
+                                    spacing: 2
+                                    Button {
+                                        text: "−"
+                                        Layout.preferredWidth: 26
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "−"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                        }
+                                        onClicked: detailsRoot.rolloffAlpha = Math.max(0.05, Math.round((detailsRoot.rolloffAlpha - 0.05) * 100) / 100)
+                                    }
+                                    Button {
+                                        text: "+"
+                                        Layout.preferredWidth: 26
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "+"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                        }
+                                        onClicked: detailsRoot.rolloffAlpha = Math.min(0.50, Math.round((detailsRoot.rolloffAlpha + 0.05) * 100) / 100)
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Code Efficiency Coef (Gamma)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 220
+                            spacing: 4
+
+                            RowLayout {
+                                spacing: 6
+                                Label {
+                                    text: qsTr("3. Code Efficiency Coef (Γ):")
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
+                                }
+                                Rectangle {
+                                    height: 18
+                                    width: gammaBadgeText.implicitWidth + 10
+                                    radius: 4
+                                    color: detailsRoot.lightMode ? "#f8f0fc" : "#2c1736"
+                                    border.color: "#da77f2"
+                                    border.width: 1
+                                    Text {
+                                        id: gammaBadgeText
+                                        anchors.centerIn: parent
+                                        text: "Γ = " + detailsRoot.codeEfficiencyCoef.toFixed(2)
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        color: "#da77f2"
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 32
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"
+                                    border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: detailsRoot.codeEfficiencyCoef.toFixed(2)
+                                        font.bold: true
+                                        font.pixelSize: 13
+                                        font.family: "monospace"
+                                        color: detailsRoot.lightMode ? "#212529" : "#ffffff"
+                                    }
+                                }
+
+                                RowLayout {
+                                    spacing: 2
+                                    Button {
+                                        text: "−"
+                                        Layout.preferredWidth: 26
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "−"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                        }
+                                        onClicked: detailsRoot.codeEfficiencyCoef = Math.max(0.10, Math.round((detailsRoot.codeEfficiencyCoef - 0.05) * 100) / 100)
+                                    }
+                                    Button {
+                                        text: "+"
+                                        Layout.preferredWidth: 26
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "+"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                        }
+                                        onClicked: detailsRoot.codeEfficiencyCoef = Math.min(10.00, Math.round((detailsRoot.codeEfficiencyCoef + 0.05) * 100) / 100)
+                                    }
+                                    Button {
+                                        text: "1.0"
+                                        Layout.preferredWidth: 32
+                                        height: 32
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
+                                            border.width: 1
+                                        }
+                                        contentItem: Text {
+                                            text: "1.0"
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                        }
+                                        onClicked: detailsRoot.codeEfficiencyCoef = 1.00
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Formula Banner & Live Derivations Card
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: formulaInnerCol.implicitHeight + 16
+                        Layout.preferredHeight: implicitHeight
+                        radius: 8
+                        color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1117"
+                        border.color: detailsRoot.lightMode ? "#e9ecef" : "#30363d"
+                        border.width: 1
+
+                        ColumnLayout {
+                            id: formulaInnerCol
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Text {
+                                    text: "📐 Key Shannon-Hartley AMC Formula:"
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: detailsRoot.lightMode ? "#495057" : "#8b949e"
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Rectangle {
+                                    height: 22
+                                    width: formulaFormulaText.implicitWidth + 14
+                                    radius: 4
+                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#161b22"
+                                    border.color: "#339af0"
+                                    border.width: 1
+                                    Text {
+                                        id: formulaFormulaText
+                                        anchors.centerIn: parent
+                                        text: "r_max = [ 1 / (bits_per_symbol · (1 + α)) ] · log₂( 1 + 10^(SNR_dB / 10) / Code_efficiency_coef )"
+                                        font.family: "Consolas, 'Courier New', monospace"
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        color: "#339af0"
+                                    }
+                                }
+                            }
+
+                            // Metrics Badges Row
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                // Peak r_max
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 44
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 1
+                                        Text {
+                                            text: "Peak r_max"
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                        Text {
+                                            text: detailsRoot.derivedPeakRMax.toFixed(3)
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            font.family: "monospace"
+                                            color: "#fab005"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+                                }
+
+                                // Mean r_max
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 44
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 1
+                                        Text {
+                                            text: "Mean r_max"
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                        Text {
+                                            text: detailsRoot.derivedMeanRMax.toFixed(3)
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            font.family: "monospace"
+                                            color: "#ffd43b"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+                                }
+
+                                // Spectral Efficiency
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 44
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 1
+                                        Text {
+                                            text: "Spectral Efficiency (η)"
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                        Text {
+                                            text: detailsRoot.derivedSpectralEfficiency.toFixed(2) + " bps/Hz"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            font.family: "monospace"
+                                            color: "#51cf66"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+                                }
+
+                                // Symbol Rate
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 44
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 1
+                                        Text {
+                                            text: "Symbol Rate (Rs)"
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                        Text {
+                                            text: Math.round(detailsRoot.derivedSymbolRateKbaud) + " kbaud"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            font.family: "monospace"
+                                            color: "#339af0"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+                                }
+
+                                // Peak Bitrate
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 44
+                                    radius: 6
+                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 1
+                                        Text {
+                                            text: "Est. Peak Bitrate"
+                                            font.pixelSize: 9
+                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                        Text {
+                                            text: detailsRoot.derivedPeakBitrateMbps.toFixed(2) + " Mbps"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                            font.family: "monospace"
+                                            color: "#ff922b"
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
                                 }
                             }
                         }
