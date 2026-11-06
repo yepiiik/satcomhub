@@ -14,6 +14,19 @@ Item {
 
     signal toastCloseRequested(string runId)
 
+    function showToast(message, type) {
+        if (!toastsModel) return
+        var isErr = (type === "error")
+        var toastId = "toast-" + Date.now() + "-" + Math.floor(Math.random() * 1000)
+        toastsModel.append({
+            runId: toastId,
+            moduleName: isErr ? qsTr("Error") : qsTr("SatComHub"),
+            progress: 1.0,
+            status: isErr ? "error" : "done",
+            statusText: String(message || "")
+        })
+    }
+
     ColumnLayout {
         id: toastColumn
         anchors.right: parent.right
