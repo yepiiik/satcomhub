@@ -55,6 +55,15 @@ public:
                                                    double carrierFreqMhz = 5840.0,
                                                    double channelBandwidthKhz = 10000.0);
 
+    // Computes max code rate using the exact formula:
+    // r_max = [1 / (bits_per_symbol * (1 + alpha))] * log2(1 + (10^(SNR_dB / 10) / code_efficiency_coef))
+    Q_INVOKABLE double calculateRMax(double snrDb, double bitsPerSymbol, double alpha, double codeEfficiencyCoef) const;
+
+    // Generates the YAML session plan string from session data and transmission parameters
+    Q_INVOKABLE QString generateSessionPlanYaml(const QVariantMap &sessionEvent,
+                                                const QVariantMap &snrProfileData,
+                                                const QVariantMap &transmissionParams) const;
+
 private:
     static bool extractTleLines(const QString &inLine1, const QString &inLine2,
                                 QString &outName, QString &outLine1, QString &outLine2);

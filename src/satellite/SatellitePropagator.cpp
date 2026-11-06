@@ -15,6 +15,7 @@
 
 #include <QDateTime>
 #include <QTimeZone>
+#include <QTextStream>
 #include <QDate>
 #include <QTime>
 #include <QRegularExpression>
@@ -622,5 +623,181 @@ QVariantMap SatellitePropagator::calculatePassSnrProfile(const QString &tleLine1
     );
 
     return res.toVariantMap();
+}
+
+double SatellitePropagator::calculateRMax(double snrDb, double bitsPerSymbol, double alpha, double codeEfficiencyCoef) const {
+    if (bitsPerSymbol <= 0.0 || (1.0 + alpha) <= 0.0 || codeEfficiencyCoef <= 0.0) {
+        return 0.0;
+    }
+    if (snrDb <= -25.0) {
+        return 0.0;
+    }
+
+    double snrLinear = std::pow(10.0, snrDb / 10.0);
+    double arg = 1.0 + (snrLinear / codeEfficiencyCoef);
+    if (arg <= 1.0) {
+        return 0.0;
+    }
+
+    double prefactor = 1.0 / (bitsPerSymbol * (1.0 + alpha));
+    double rMax = prefactor * std::log2(arg);
+    return std::max(0.0, rMax);
+}
+
+QString SatellitePropagator::generateSessionPlanYaml(const QVariantMap &sessionEvent,
+                                                    const QVariantMap &snrProfileData,
+                                                    const QVariantMap &transmissionParams) const {
+    QString yaml;
+    QTextStream out(&yaml);
+
+    QString modulation = transmissionParams.value("modulation", "QPSK").toString();
+    double bitsPerSymbol = transmissionParams.value("bitsPerSymbol", 2.0).toDouble();
+    if (bitsPerSymbol <= 0.0) bitsPerSymbol = 2.0;
+    double alpha = transmissionParams.value("alpha", 0.20).toDouble();
+    double codeEfficiencyCoef = transmissionParams.value("codeEfficiencyCoef", 1.00).toDouble();
+    if (codeEfficiencyCoef <= 0.0) codeEfficiencyCoef = 1.0;
+
+    double carrierFreqMhz = transmissionParams.value("carrierFreqMhz",
+        snrProfileData.value("carrierFreqMhz", 5840.0).toDouble()).toDouble();
+    double channelBandwidthKhz = transmissionParams.value("channelBandwidthKhz",
+        snrProfileData.value("channelBandwidthKhz", 10000.0).toDouble()).toDouble();
+    double txPowerDbm = transmissionParams.value("txPowerDbm",
+        snrProfileData.value("txPowerDbm", 33.0).toDouble()).toDouble();
+    double txAntennaGainDbi = transmissionParams.value("txAntennaGainDbi",
+        snrProfileData.value("txAntennaGainDbi", 3.0).toDouble()).toDouble();
+
+    // Derived symbol rate: Rs = B / (1 + alpha) [kbaud]
+    double symbolRateKbaud = (1.0 + alpha) > 0.0 ? (channelBandwidthKhz / (1.0 + alpha)) : channelBandwidthKhz;
+
+    int passIndex = sessionEvent.value("passIndex", 1).toInt();
+    QString satName = sessionEvent.value("satelliteName", snrProfileData.value("satelliteName", "Satellite")).toString();
+    QString startUtc = sessionEvent.value("combinedAosUtc", snrProfileData.value("startUtc", "")).toString();
+    QString endUtc = sessionEvent.value("combinedLosUtc", snrProfileData.value("endUtc", "")).toString();
+    double durationSec = sessionEvent.value("durationSeconds", snrProfileData.value("durationSeconds", 0.0)).toDouble();
+    double maxElDeg = sessionEvent.value("maxElevation", 0.0).toDouble();
+    bool isMultiStation = sessionEvent.value("isMultiStation", false).toBool();
+
+    // Extract SNR vectors to calculate peak & mean r_max
+    QVariantList selSnrList = snrProfileData.value("combinedSelectionSnrDb").toList();
+    QVariantList mrcSnrList = snrProfileData.value("combinedMrcSnrDb").toList();
+    QVariantList timestampsList = snrProfileData.value("timestampsSec").toList();
+    QVariantList utcLabelsList = snrProfileData.value("utcLabels").toList();
+
+    double peakSnrDb = -999.0;
+    double peakRMax = 0.0;
+    double sumRMax = 0.0;
+    int visiblePoints = 0;
+
+    for (int i = 0; i < selSnrList.size(); ++i) {
+        double snr = selSnrList[i].toDouble();
+        if (snr > -20.0) {
+            double r = calculateRMax(snr, bitsPerSymbol, alpha, codeEfficiencyCoef);
+            if (snr > peakSnrDb) {
+                peakSnrDb = snr;
+                peakRMax = r;
+            }
+            sumRMax += r;
+            visiblePoints++;
+        }
+    }
+    double meanRMax = visiblePoints > 0 ? (sumRMax / visiblePoints) : 0.0;
+    double peakSpectralEfficiency = ((bitsPerSymbol * peakRMax) / (1.0 + alpha));
+    double peakBitrateMbps = (symbolRateKbaud * bitsPerSymbol * peakRMax) / 1000.0;
+
+    // Header comments
+    out << "# ====================================================================\n";
+    out << "# SatComHub Satellite Downlink Transmission Session Plan\n";
+    out << "# Generated: " << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << "\n";
+    out << "# Adaptive Coding & Modulation (ACM) Profile\n";
+    out << "# ====================================================================\n\n";
+
+    out << "session_plan:\n";
+    out << "  version: \"1.0\"\n";
+    out << "  generator: \"SatComHub Mission Planner\"\n";
+    out << "  created_at_utc: \"" << QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss 'UTC'") << "\"\n\n";
+
+    // Target Satellite
+    out << "  target_satellite:\n";
+    out << "    name: \"" << satName << "\"\n";
+    out << "    carrier_frequency_mhz: " << QString::number(carrierFreqMhz, 'f', 2) << "\n";
+    out << "    channel_bandwidth_khz: " << QString::number(channelBandwidthKhz, 'f', 1) << "\n";
+    out << "    tx_power_dbm: " << QString::number(txPowerDbm, 'f', 1) << "\n";
+    out << "    tx_antenna_gain_dbi: " << QString::number(txAntennaGainDbi, 'f', 1) << "\n\n";
+
+    // Session Window
+    out << "  session_window:\n";
+    out << "    pass_number: " << passIndex << "\n";
+    out << "    start_utc: \"" << startUtc << "\"\n";
+    out << "    end_utc: \"" << endUtc << "\"\n";
+    out << "    duration_seconds: " << QString::number(durationSec, 'f', 1) << "\n";
+    out << "    max_elevation_deg: " << QString::number(maxElDeg, 'f', 2) << "\n";
+    out << "    is_multi_station_session: " << (isMultiStation ? "true" : "false") << "\n";
+    out << "    peak_snr_db: " << (peakSnrDb > -900.0 ? QString::number(peakSnrDb, 'f', 2) : "0.00") << "\n\n";
+
+    // Transmission Parameters & Formulas
+    out << "  transmission_parameters:\n";
+    out << "    modulation: \"" << modulation << "\"\n";
+    out << "    bits_per_symbol: " << QString::number(bitsPerSymbol, 'f', 1) << "\n";
+    out << "    rolloff_factor_alpha: " << QString::number(alpha, 'f', 3) << "\n";
+    out << "    code_efficiency_coef: " << QString::number(codeEfficiencyCoef, 'f', 3) << "\n";
+    out << "    symbol_rate_kbaud: " << QString::number(symbolRateKbaud, 'f', 2) << "\n";
+    out << "    estimated_peak_r_max: " << QString::number(peakRMax, 'f', 4) << "\n";
+    out << "    estimated_mean_r_max: " << QString::number(meanRMax, 'f', 4) << "\n";
+    out << "    peak_spectral_efficiency_bps_hz: " << QString::number(peakSpectralEfficiency, 'f', 3) << "\n";
+    out << "    peak_bitrate_mbps: " << QString::number(peakBitrateMbps, 'f', 3) << "\n\n";
+
+    // Participating Ground Stations
+    out << "  participating_ground_stations:\n";
+    QVariantList stationPasses = sessionEvent.value("stationPasses").toList();
+    if (stationPasses.isEmpty()) {
+        stationPasses = snrProfileData.value("stations").toList();
+    }
+    for (const QVariant &spVar : stationPasses) {
+        QVariantMap sp = spVar.toMap();
+        QString stName = sp.value("stationName", sp.value("name", "Station")).toString();
+        QString stId = sp.value("stationId", "").toString();
+        double stMaxEl = sp.value("maxElevationDeg", sp.value("maxElevation", 0.0)).toDouble();
+        double stMaxSnr = sp.value("maxSnrDb", 0.0).toDouble();
+        double stPeakRMax = calculateRMax(stMaxSnr, bitsPerSymbol, alpha, codeEfficiencyCoef);
+        QString aos = sp.value("aosUtc", "").toString();
+        QString tca = sp.value("tcaUtc", "").toString();
+        QString los = sp.value("losUtc", "").toString();
+        double dur = sp.value("durationSeconds", sp.value("visibleDurationSeconds", 0.0)).toDouble();
+
+        out << "    - station_id: \"" << stId << "\"\n";
+        out << "      station_name: \"" << stName << "\"\n";
+        out << "      visible_duration_seconds: " << QString::number(dur, 'f', 0) << "\n";
+        out << "      aos_utc: \"" << aos << "\"\n";
+        out << "      tca_utc: \"" << tca << "\"\n";
+        out << "      los_utc: \"" << los << "\"\n";
+        out << "      peak_elevation_deg: " << QString::number(stMaxEl, 'f', 2) << "\n";
+        out << "      peak_snr_db: " << QString::number(stMaxSnr, 'f', 2) << "\n";
+        out << "      station_peak_r_max: " << QString::number(stPeakRMax, 'f', 4) << "\n";
+    }
+    out << "\n";
+
+    // Scheduled Transmission Intervals (sampled timeline)
+    out << "  scheduled_transmission_intervals:\n";
+    int count = static_cast<int>(timestampsList.size());
+    int stepStride = std::max(1, count / 35);
+    for (int k = 0; k < count; k += stepStride) {
+        double relSec = timestampsList[k].toDouble();
+        QString utc = (k < utcLabelsList.size()) ? utcLabelsList[k].toString() : "";
+        double selSnr = (k < selSnrList.size()) ? selSnrList[k].toDouble() : -25.0;
+        double mrcSnr = (k < mrcSnrList.size()) ? mrcSnrList[k].toDouble() : selSnr;
+        double rMaxInst = calculateRMax(selSnr, bitsPerSymbol, alpha, codeEfficiencyCoef);
+        double specEff = (bitsPerSymbol * rMaxInst) / (1.0 + alpha);
+        double bitrateMbps = (symbolRateKbaud * bitsPerSymbol * rMaxInst) / 1000.0;
+
+        out << "    - time_rel_sec: " << QString::number(relSec, 'f', 0) << "\n";
+        out << "      utc_time: \"" << utc << "\"\n";
+        out << "      selection_snr_db: " << QString::number(selSnr, 'f', 2) << "\n";
+        out << "      mrc_combined_snr_db: " << QString::number(mrcSnr, 'f', 2) << "\n";
+        out << "      r_max: " << QString::number(rMaxInst, 'f', 4) << "\n";
+        out << "      spectral_efficiency_bps_hz: " << QString::number(specEff, 'f', 3) << "\n";
+        out << "      bitrate_mbps: " << QString::number(bitrateMbps, 'f', 3) << "\n";
+    }
+
+    return yaml;
 }
 
