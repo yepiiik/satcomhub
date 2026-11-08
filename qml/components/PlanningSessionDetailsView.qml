@@ -183,18 +183,48 @@ Rectangle {
 
     readonly property real derivedSymbolRateKbaud: (1.0 + rolloffAlpha) > 0 ? (channelBandwidthKhz / (1.0 + rolloffAlpha)) : channelBandwidthKhz
 
-    // Estimated Session Data Volume (MB) integrated across visible samples
+    // Estimated Session Data Volume (MB) integrated across valid transmission periods (FER <= 1%)
+    // using scheduled discrete hardware code rates from the satellite table.
     readonly property real estimatedSessionVolumeMb: {
         if (!snrProfileData || !snrProfileData.combinedSelectionSnrDb) return 0.0
         var arr = snrProfileData.combinedSelectionSnrDb
         var rateHz = snrProfileData.sampleRateHz > 0 ? snrProfileData.sampleRateHz : 1.0
         var dtSec = 1.0 / rateHz
         var symRateBaud = derivedSymbolRateKbaud * 1000.0
+
+        var sortedTiers = []
+        if (activeCodeRateTable && activeCodeRateTable.length > 0) {
+            for (var t = 0; t < activeCodeRateTable.length; t++) {
+                sortedTiers.push(activeCodeRateTable[t])
+            }
+            sortedTiers.sort(function(a, b) { return Number(b.rate) - Number(a.rate) })
+        }
+
+        var minTierRate = sortedTiers.length > 0 ? Number(sortedTiers[sortedTiers.length - 1].rate) : 0.19
         var totalBits = 0.0
+
         for (var i = 0; i < arr.length; i++) {
             if (arr[i] > -20.0) {
                 var rMaxStep = calculateRMaxFormula(arr[i], bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
-                var bitrateBps = symRateBaud * bitsPerSymbol * rMaxStep
+
+                // If r_max drops below the lowest available code rate (e.g. 0.19),
+                // the transceiver has an overhead deficit, causing BER to rise above 10^-4
+                // and FER to exceed 1%. Those corrupted intervals deliver 0 usable user data.
+                if (rMaxStep < minTierRate) {
+                    continue
+                }
+
+                // Select the highest achievable discrete hardware code rate R_k <= r_max
+                var activeRate = minTierRate
+                for (var j = 0; j < sortedTiers.length; j++) {
+                    if (Number(sortedTiers[j].rate) <= rMaxStep) {
+                        activeRate = Number(sortedTiers[j].rate)
+                        break
+                    }
+                }
+
+                // Accounting for the 1% FER packet loss overhead: goodput = (1 - FER) = 0.99
+                var bitrateBps = symRateBaud * bitsPerSymbol * activeRate * 0.99
                 totalBits += bitrateBps * dtSec
             }
         }
@@ -436,12 +466,22 @@ Rectangle {
 
                     // Estimated Session Data Volume Pill
                     Rectangle {
+                        id: volBadgeRect
                         height: 24
                         width: volBadgeRow.implicitWidth + 14
                         radius: 6
                         color: detailsRoot.lightMode ? "#e7f5ff" : "#122338"
                         border.color: "#339af0"
                         border.width: 1
+
+                        MouseArea {
+                            id: volBadgeArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
+
+                        ToolTip.visible: volBadgeArea.containsMouse
+                        ToolTip.text: qsTr("Scheduled payload volume based on active hardware code rates (excluding periods where r_max < lowest code rate and FER > 1%).")
 
                         RowLayout {
                             id: volBadgeRow
