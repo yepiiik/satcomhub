@@ -54,6 +54,8 @@ ApplicationWindow {
 
     // History state
     property var currentHistoricalObservation: null
+    property var currentHistorySessionDetails: null
+    property string activeHistoryEditingSessionId: ""
 
     // Python Factor Modules state (per-station map: stationId -> array of module objects)
     property var stationFactorModulesMap: ({})
@@ -325,6 +327,15 @@ ApplicationWindow {
         }
 
         onStationCommitted: (data, isEdit) => {
+            if (window.activeHistoryEditingSessionId !== "") {
+                var targetSessionId = window.activeHistoryEditingSessionId
+                window.activeHistoryEditingSessionId = ""
+                stationManager.updateHistorySessionStation(targetSessionId, data)
+                window.selectHistorySession(targetSessionId)
+                window.reloadHistorySessions()
+                return
+            }
+
             if (isEdit) {
                 for (var i = 0; i < stationsModel.count; i++) {
                     var cachedSt = (window.stationsList && i < window.stationsList.length) ? window.stationsList[i] : null
@@ -372,6 +383,15 @@ ApplicationWindow {
         propagator: propagator
 
         onSatelliteCommitted: (data, isEdit) => {
+            if (window.activeHistoryEditingSessionId !== "") {
+                var targetSessionId = window.activeHistoryEditingSessionId
+                window.activeHistoryEditingSessionId = ""
+                stationManager.updateHistorySessionSatellite(targetSessionId, data)
+                window.selectHistorySession(targetSessionId)
+                window.reloadHistorySessions()
+                return
+            }
+
             var tleChanged = false
             if (isEdit) {
                 for (var s = 0; s < satellitesModel.count; s++) {
@@ -429,6 +449,7 @@ ApplicationWindow {
                 tleChanged = true
             }
             window.syncSatellitesCache()
+            window.syncSatellitesToDisk()
             window.satelliteConfigVersion += 1
             mapComponent.focusOnCoordinate(data.latitude, data.longitude)
             mapComponent.requestCanvasRedraw()
@@ -541,51 +562,6 @@ ApplicationWindow {
 
     ListModel {
         id: historyModel
-        ListElement {
-            obsId: "OBS-2026-10-21-01"
-            satelliteName: "ISS (ZARYA)"
-            stationName: "Warsaw Primary Hub"
-            dateTimeUtc: "2026-10-21 14:22:10 UTC"
-            durationFormatted: "10m 15s"
-            maxSnrDb: 18.4
-            meanSnrDb: 12.1
-            maxElevationDeg: 62.4
-            status: "Decoded"
-            decodedFrames: 1240
-            totalFrames: 1248
-            operator: "SP3PUT Lab Team"
-            notes: "Clear pass above Central Europe. C-band downlink fully locked from AOS+45s to LOS-30s. Turbo decoder rate 1/2 achieved 99.3% packet success."
-        }
-        ListElement {
-            obsId: "OBS-2026-10-20-03"
-            satelliteName: "POLYITAN-3-PUT (LEO)"
-            stationName: "Warsaw Primary Hub"
-            dateTimeUtc: "2026-10-20 18:05:44 UTC"
-            durationFormatted: "8m 30s"
-            maxSnrDb: 14.8
-            meanSnrDb: 9.6
-            maxElevationDeg: 41.0
-            status: "Decoded"
-            decodedFrames: 940
-            totalFrames: 960
-            operator: "SP5PUT Ground Station"
-            notes: "Multi-station handover test. Track handover initiated at TCA+60s with Krakow GS."
-        }
-        ListElement {
-            obsId: "OBS-2026-10-19-02"
-            satelliteName: "ISS (ZARYA)"
-            stationName: "Krakow GS-02"
-            dateTimeUtc: "2026-10-19 09:12:00 UTC"
-            durationFormatted: "6m 50s"
-            maxSnrDb: 11.2
-            meanSnrDb: 6.8
-            maxElevationDeg: 24.5
-            status: "Partial"
-            decodedFrames: 610
-            totalFrames: 820
-            operator: "AGH Space Systems"
-            notes: "Low elevation pass. Tree obstruction near horizon caused minor packet drops between 5° and 10° elevation."
-        }
     }
 
     // ================= HELPER FUNCTIONS =================
@@ -648,7 +624,9 @@ ApplicationWindow {
                 break
             }
         }
+        stationManager.deleteSatelliteFile(satId)
         window.syncSatellitesCache()
+        window.syncSatellitesToDisk()
         if (window.selectedSatelliteId === satId) {
             window.selectedSatelliteId = ""
             if (window.satellitesList.length > 0) {
@@ -716,6 +694,8 @@ ApplicationWindow {
                 rolloffAlpha: item.rolloffAlpha !== undefined ? item.rolloffAlpha : 0.35,
                 txPowerDbm: item.txPowerDbm !== undefined ? item.txPowerDbm : 33.0,
                 txAntennaGainDbi: item.txAntennaGainDbi !== undefined ? item.txAntennaGainDbi : 3.0,
+                codeRateTable: item.codeRateTable || [],
+                codeRateRegister: item.codeRateRegister || "fpgatrx/code_rate",
                 latitude: item.latitude || 0,
                 longitude: item.longitude || 0,
                 altitudeKm: item.altitudeKm || 500,
@@ -727,6 +707,43 @@ ApplicationWindow {
         }
         window.satellitesList = list
         window.satellitesMap = map
+    }
+
+    function syncSatellitesToDisk() {
+        var list = []
+        for (var i = 0; i < satellitesModel.count; i++) {
+            var sat = (window.satellitesList && i < window.satellitesList.length) ? window.satellitesList[i] : null
+            if (!sat) continue
+            list.push(sat)
+        }
+        stationManager.saveSatellitesToDisk(list)
+        window.syncSatellitesCache()
+    }
+
+    function reloadHistorySessions() {
+        historyModel.clear()
+        var sessList = stationManager.loadHistorySessions()
+        for (var i = 0; i < sessList.length; i++) {
+            historyModel.append(sessList[i])
+        }
+        if (historyModel.count > 0 && !window.currentHistorySessionDetails) {
+            window.selectHistorySession(historyModel.get(0).sessionId || historyModel.get(0).obsId)
+        }
+    }
+
+    function selectHistorySession(sessionId) {
+        if (!sessionId || sessionId.length === 0) {
+            window.currentHistoricalObservation = null
+            window.currentHistorySessionDetails = null
+            return
+        }
+        var details = stationManager.loadHistorySessionDetails(sessionId)
+        if (details && details.valid) {
+            window.currentHistorySessionDetails = details
+            window.currentHistoricalObservation = details.session || null
+        } else {
+            window.currentHistorySessionDetails = null
+        }
     }
 
     function syncStationsCache() {
@@ -1631,28 +1648,18 @@ ApplicationWindow {
                 lightMode: window.lightMode
 
                 onObservationSelected: (obs) => {
-                    window.currentHistoricalObservation = obs
+                    window.selectHistorySession(obs.sessionId || obs.obsId)
                 }
 
                 onAddObservationRequested: {
-                    var nextId = "OBS-2026-10-23-0" + (historyModel.count + 1)
-                    var stName = stationsModel.count > 0 ? stationsModel.get(0).name : "Warsaw Primary Hub"
-                    historyModel.insert(0, {
-                        obsId: nextId,
-                        satelliteName: window.currentSatName,
-                        stationName: stName,
-                        dateTimeUtc: propagator.currentUtcIsoString(),
-                        durationFormatted: "9m 45s",
-                        maxSnrDb: 18.5,
-                        meanSnrDb: 11.2,
-                        maxElevationDeg: 54.2,
-                        status: "Decoded",
-                        decodedFrames: 1120,
-                        totalFrames: 1145,
-                        operator: "SP3PUT Ground Team",
-                        notes: "Live pass telemetry logged via SatComHub F9 observation manager."
-                    })
-                    window.currentHistoricalObservation = historyModel.get(0)
+                    var newSess = stationManager.createBlankHistorySession()
+                    window.reloadHistorySessions()
+                    window.selectHistorySession(newSess.sessionId)
+                }
+
+                onDeleteObservationRequested: (sid) => {
+                    stationManager.deleteHistorySession(sid)
+                    window.reloadHistorySessions()
                 }
             }
         }
@@ -1903,6 +1910,66 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                onSaveToHistoryRequested: {
+                    var pass = window.currentPlanningSession
+                    var sat = window.getSelectedSatellite()
+                    var stations = []
+                    if (window.planningSnrData && window.planningSnrData.stationCurves) {
+                        for (var i = 0; i < window.planningSnrData.stationCurves.length; i++) {
+                            var sc = window.planningSnrData.stationCurves[i]
+                            var foundSt = null
+                            if (window.stationsMap && window.stationsMap[sc.stationId]) {
+                                foundSt = window.stationsMap[sc.stationId]
+                            }
+                            if (!foundSt) {
+                                for (var j = 0; j < window.stationsList.length; j++) {
+                                    if (window.stationsList[j].stationId === sc.stationId || window.stationsList[j].name === sc.stationName) {
+                                        foundSt = window.stationsList[j]
+                                        break
+                                    }
+                                }
+                            }
+                            if (foundSt) stations.push(foundSt)
+                        }
+                    }
+                    if (stations.length === 0) {
+                        for (var s = 0; s < window.stationsList.length; s++) {
+                            if (window.stationsList[s].active !== false) {
+                                stations.push(window.stationsList[s])
+                            }
+                        }
+                    }
+
+                    var passIdx = pass ? pass.passIndex : 1
+                    var satName = sat ? sat.name : (window.currentSatName || "Satellite")
+                    var cleanSat = satName.replace(/[^a-zA-Z0-9_-]/g, "_")
+                    var timeTag = Qt.formatDateTime(new Date(), "yyyyMMdd_hhmmss")
+                    var sessionId = "SESSION_" + timeTag + "_" + cleanSat + "_Pass" + passIdx
+
+                    var sessionMeta = {
+                        sessionId: sessionId,
+                        sessionName: satName + " — Pass #" + passIdx + " (" + (pass ? pass.relativeTimeStr : "Planned Pass") + ")",
+                        dateUtc: pass ? (pass.dateStr + " " + pass.timeWindowStr) : Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm:ss 'UTC'"),
+                        combinedAosUtc: pass ? pass.startTimeIso : "",
+                        combinedLosUtc: pass ? pass.endTimeIso : "",
+                        durationSeconds: pass ? pass.durationSeconds : 0,
+                        durationFormatted: pass ? pass.durationFormatted : "--",
+                        satelliteId: sat ? sat.satId : "",
+                        satelliteName: satName,
+                        maxSnrDb: pass && pass.maxSnrDb !== undefined ? pass.maxSnrDb : (window.planningSnrData ? window.planningSnrData.overallMaxSnr : 0.0),
+                        meanSnrDb: pass && pass.meanSnrDb !== undefined ? pass.meanSnrDb : 0.0,
+                        maxElevationDeg: pass && pass.maxElevationDeg !== undefined ? pass.maxElevationDeg : 0.0,
+                        status: "Planned",
+                        notes: "Session saved from Planning forecast with target satellite and ground station RF parameters.",
+                        snrData: window.planningSnrData || {}
+                    }
+
+                    var savedRes = stationManager.saveHistorySession(sessionMeta, sat || {}, stations)
+                    window.reloadHistorySessions()
+                    window.selectHistorySession(savedRes.sessionId)
+                    toastStack.showToast(qsTr("Session saved to History: ") + savedRes.sessionName, "success")
+                }
             }
 
             // TAB 2 MAIN AREA: History Observation Details View
@@ -1910,8 +1977,92 @@ ApplicationWindow {
                 id: historyDetailsView
                 anchors.fill: parent
                 visible: window.currentNavTab === 2
-                observationData: window.currentHistoricalObservation
+                sessionDetails: window.currentHistorySessionDetails
+                availableSatellites: window.satellitesList
+                availableStations: window.stationsList
                 lightMode: window.lightMode
+
+                onEditSatelliteRequested: (satData) => {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        window.activeHistoryEditingSessionId = window.currentHistorySessionDetails.session.sessionId
+                        satelliteDialog.openForEdit(satData)
+                    }
+                }
+
+                onAddSatelliteRequested: {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        window.activeHistoryEditingSessionId = window.currentHistorySessionDetails.session.sessionId
+                        satelliteDialog.openForNew()
+                    }
+                }
+
+                onCopySatelliteReferenceRequested: (refSat) => {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        var sid = window.currentHistorySessionDetails.session.sessionId
+                        stationManager.updateHistorySessionSatellite(sid, refSat)
+                        window.selectHistorySession(sid)
+                        window.reloadHistorySessions()
+                        toastStack.showToast(qsTr("Satellite config copied to session"), "success")
+                    }
+                }
+
+                onRemoveSatelliteRequested: {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        var sid = window.currentHistorySessionDetails.session.sessionId
+                        stationManager.updateHistorySessionSatellite(sid, {})
+                        window.selectHistorySession(sid)
+                        window.reloadHistorySessions()
+                    }
+                }
+
+                onEditStationRequested: (stData) => {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        window.activeHistoryEditingSessionId = window.currentHistorySessionDetails.session.sessionId
+                        stationDialog.openForEdit(stData)
+                    }
+                }
+
+                onAddStationRequested: {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        window.activeHistoryEditingSessionId = window.currentHistorySessionDetails.session.sessionId
+                        stationDialog.openForNew()
+                    }
+                }
+
+                onCopyStationReferenceRequested: (refSt) => {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        var sid = window.currentHistorySessionDetails.session.sessionId
+                        stationManager.updateHistorySessionStation(sid, refSt)
+                        window.selectHistorySession(sid)
+                        window.reloadHistorySessions()
+                        toastStack.showToast(qsTr("Ground Station copied to session"), "success")
+                    }
+                }
+
+                onRemoveStationRequested: (stId) => {
+                    if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
+                        var sid = window.currentHistorySessionDetails.session.sessionId
+                        stationManager.deleteHistorySessionStation(sid, stId)
+                        window.selectHistorySession(sid)
+                        window.reloadHistorySessions()
+                    }
+                }
+
+                onPreviewSessionJsonRequested: (jsonText) => {
+                    stationDetailsViewer.showJson(qsTr("Session Metadata JSON"), jsonText)
+                }
+
+                onPreviewSatelliteJsonRequested: (jsonText) => {
+                    stationDetailsViewer.showJson(qsTr("Target Satellite JSON"), jsonText)
+                }
+
+                onPreviewStationJsonRequested: (stName, jsonText) => {
+                    stationDetailsViewer.showJson(qsTr("Ground Station — ") + stName, jsonText)
+                }
+
+                onOpenSessionFolderRequested: (sid) => {
+                    stationManager.openHistoryFolder()
+                }
             }
 
             // Smooth rounded corner mask overlay (masks the map/views to clean radius: 12)
@@ -2133,93 +2284,33 @@ ApplicationWindow {
         }
 
         var initialTracksMap = {}
-        // Initial Sample Satellite (ISS) - Live NORAD TLE Elements
-        var issL1 = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
-        var issL2 = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665"
-        var prop = propagator.propagateTle(issL1, issL2, 0.0)
-        if (prop.valid) {
-            var tracks = propagator.computeOrbitTracks(issL1, issL2, 0.75)
-            initialTracksMap["SAT-01"] = tracks
-            satellitesModel.append({
-                satId: "SAT-01",
-                name: "ISS (ZARYA)",
-                tle1: issL1,
-                tle2: issL2,
-                carrierFreqMhz: 5850.0,
-                channelBandwidthKhz: 20000.0,
-                modulation: "OQPSK",
-                bitsPerSymbol: 2.0,
-                codeEfficiencyCoef: 1.24,
-                rolloffAlpha: 0.35,
-                txPowerDbm: 33.0,
-                txAntennaGainDbi: 3.0,
-                codeRateTable: [
-                    { name: "R1", rate: 0.910, hw: "0" },
-                    { name: "R2", rate: 0.830, hw: "1" },
-                    { name: "R3", rate: 0.700, hw: "2" },
-                    { name: "R4", rate: 0.570, hw: "3" },
-                    { name: "R5", rate: 0.410, hw: "4" },
-                    { name: "R6", rate: 0.285, hw: "5" },
-                    { name: "R7", rate: 0.190, hw: "6" }
-                ],
-                codeRateRegister: "fpgatrx/code_rate",
-                latitude: prop.latitude,
-                longitude: prop.longitude,
-                altitudeKm: prop.altitudeKm,
-                visibilityRadiusMeters: prop.visibilityRadiusMeters,
-                velocityKmS: prop.velocityKmS || 0
-            })
-            window.currentSatAltKm = prop.altitudeKm
-            window.currentSatName = "ISS (ZARYA)"
-            window.selectedSatelliteId = "SAT-01"
-            mapComponent.focusOnCoordinate(prop.latitude, prop.longitude)
-        }
-
-        // Initial Sample Satellite 2 (POLYITAN-3-PUT)
-        var polyL1 = "1 99999U 24001A   26290.50000000  .00005000  00000+0  10000-3 0  9990"
-        var polyL2 = "2 99999  97.4000 120.0000 0012000  90.0000 270.0000 15.15000000012345"
-        var propPoly = propagator.propagateTle(polyL1, polyL2, 0.0)
-        if (propPoly.valid) {
-            var tracksPoly = propagator.computeOrbitTracks(polyL1, polyL2, 0.75)
-            initialTracksMap["SAT-02"] = tracksPoly
-            satellitesModel.append({
-                satId: "SAT-02",
-                name: "POLYITAN-3-PUT (LEO)",
-                tle1: polyL1,
-                tle2: polyL2,
-                carrierFreqMhz: 5840.0,
-                channelBandwidthKhz: 10000.0,
-                modulation: "QPSK",
-                bitsPerSymbol: 2.0,
-                codeEfficiencyCoef: 1.00,
-                rolloffAlpha: 0.20,
-                txPowerDbm: 33.0,
-                txAntennaGainDbi: 3.0,
-                codeRateTable: [
-                    { name: "R1", rate: 0.910, hw: "0" },
-                    { name: "R2", rate: 0.830, hw: "1" },
-                    { name: "R3", rate: 0.700, hw: "2" },
-                    { name: "R4", rate: 0.570, hw: "3" },
-                    { name: "R5", rate: 0.410, hw: "4" },
-                    { name: "R6", rate: 0.285, hw: "5" },
-                    { name: "R7", rate: 0.190, hw: "6" }
-                ],
-                codeRateRegister: "fpgatrx/code_rate",
-                latitude: propPoly.latitude,
-                longitude: propPoly.longitude,
-                altitudeKm: propPoly.altitudeKm,
-                visibilityRadiusMeters: propPoly.visibilityRadiusMeters,
-                velocityKmS: propPoly.velocityKmS || 0
-            })
+        var loadedSats = stationManager.loadSatellitesFromDisk()
+        for (var sIdx = 0; sIdx < loadedSats.length; sIdx++) {
+            var sItem = loadedSats[sIdx]
+            var prop = propagator.propagateTle(sItem.tle1, sItem.tle2, 0.0)
+            if (prop.valid) {
+                var tracks = propagator.computeOrbitTracks(sItem.tle1, sItem.tle2, 0.75)
+                initialTracksMap[sItem.satId] = tracks
+                sItem.latitude = prop.latitude
+                sItem.longitude = prop.longitude
+                sItem.altitudeKm = prop.altitudeKm
+                sItem.visibilityRadiusMeters = prop.visibilityRadiusMeters
+                sItem.velocityKmS = prop.velocityKmS || 0
+            }
+            satellitesModel.append(sItem)
         }
         window.satelliteTracksMap = initialTracksMap
         window.syncStationsCache()
         window.syncSatellitesCache()
 
-        // Set initial historical observation
-        if (historyModel.count > 0) {
-            window.currentHistoricalObservation = historyModel.get(0)
+        if (satellitesModel.count > 0) {
+            var firstSat = satellitesModel.get(0)
+            window.selectSatellite(firstSat.satId, firstSat.latitude, firstSat.longitude, firstSat.altitudeKm, firstSat.name)
+            mapComponent.focusOnCoordinate(firstSat.latitude, firstSat.longitude)
         }
+
+        // Initialize historical sessions from disk
+        window.reloadHistorySessions()
 
         // Trigger initial future pass prediction
         window.calculateFuturePasses()

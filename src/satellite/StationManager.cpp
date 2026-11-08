@@ -778,3 +778,679 @@ QVariantList StationManager::loadStationsFromDisk()
 
     return list;
 }
+
+// =========================================================================
+// SATELLITE PERSISTENCE & JSON SERIALIZATION
+// =========================================================================
+
+QString StationManager::getSatellitesDirectory() const
+{
+    QString baseDir;
+    QString portablePath = QCoreApplication::applicationDirPath() + "/satellites";
+    if (QDir(portablePath).exists()) {
+        return QDir(portablePath).absolutePath();
+    }
+
+    baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (baseDir.isEmpty()) {
+        baseDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    }
+    if (baseDir.isEmpty()) {
+        baseDir = QDir::homePath() + "/AppData/Roaming/satcomhub";
+    }
+
+    if (baseDir.endsWith("/satcomhub/satcomhub", Qt::CaseInsensitive)) {
+        baseDir = baseDir.left(baseDir.length() - 10);
+    }
+
+    QDir dir(baseDir + "/satellites");
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return dir.absolutePath();
+}
+
+void StationManager::openSatellitesFolder()
+{
+    QString path = getSatellitesDirectory();
+    QDir().mkpath(path);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+QString StationManager::buildSatelliteJson(const QVariantMap &satData)
+{
+    QJsonObject root;
+    QString id = satData.value("satId").toString().trimmed();
+    if (id.isEmpty()) id = "SAT-01";
+    root["satId"] = id;
+    root["name"] = satData.value("name", "Unknown Satellite").toString();
+
+    QJsonObject tleObj;
+    tleObj["line1"] = satData.value("tle1").toString();
+    tleObj["line2"] = satData.value("tle2").toString();
+    root["tle"] = tleObj;
+
+    QJsonObject rfObj;
+    rfObj["carrier_frequency_mhz"] = satData.value("carrierFreqMhz", 5850.0).toDouble();
+    rfObj["channel_bandwidth_khz"] = satData.value("channelBandwidthKhz", 20000.0).toDouble();
+    rfObj["modulation"] = satData.value("modulation", "OQPSK").toString();
+    rfObj["bits_per_symbol"] = satData.value("bitsPerSymbol", 2.0).toDouble();
+    rfObj["code_efficiency_coef"] = satData.value("codeEfficiencyCoef", 1.24).toDouble();
+    rfObj["rolloff_alpha"] = satData.value("rolloffAlpha", 0.35).toDouble();
+    rfObj["tx_power_dbm"] = satData.value("txPowerDbm", 33.0).toDouble();
+    rfObj["tx_antenna_gain_dbi"] = satData.value("txAntennaGainDbi", 3.0).toDouble();
+    root["rf_configuration"] = rfObj;
+
+    QJsonObject codingObj;
+    codingObj["code_rate_register"] = satData.value("codeRateRegister", "").toString();
+    QVariant tableVar = satData.value("codeRateTable");
+    if (tableVar.isValid()) {
+        QJsonArray tableArr;
+        QVariantList list = tableVar.toList();
+        for (const QVariant &item : list) {
+            QVariantMap itemMap = item.toMap();
+            QJsonObject entry;
+            entry["name"] = itemMap.value("name").toString();
+            entry["rate"] = itemMap.value("rate").toDouble();
+            entry["hw"] = itemMap.value("hw").toString();
+            tableArr.append(entry);
+        }
+        codingObj["code_rate_table"] = tableArr;
+    }
+    root["coding"] = codingObj;
+
+    QJsonObject meta;
+    meta["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    root["metadata"] = meta;
+
+    QJsonDocument doc(root);
+    return QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
+}
+
+QVariantMap StationManager::parseSatelliteJson(const QString &jsonString)
+{
+    QVariantMap result;
+    result["valid"] = false;
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonString.trimmed().toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        return result;
+    }
+
+    QJsonObject root = doc.object();
+    result["valid"] = true;
+    result["satId"] = root.value("satId").toString();
+    result["name"] = root.value("name").toString();
+
+    if (root.contains("tle") && root["tle"].isObject()) {
+        QJsonObject tle = root["tle"].toObject();
+        result["tle1"] = tle.value("line1").toString();
+        result["tle2"] = tle.value("line2").toString();
+    } else {
+        result["tle1"] = root.value("tle1").toString();
+        result["tle2"] = root.value("tle2").toString();
+    }
+
+    if (root.contains("rf_configuration") && root["rf_configuration"].isObject()) {
+        QJsonObject rf = root["rf_configuration"].toObject();
+        result["carrierFreqMhz"] = rf.value("carrier_frequency_mhz").toDouble(5850.0);
+        result["channelBandwidthKhz"] = rf.value("channel_bandwidth_khz").toDouble(20000.0);
+        result["modulation"] = rf.value("modulation").toString("OQPSK");
+        result["bitsPerSymbol"] = rf.value("bits_per_symbol").toDouble(2.0);
+        result["codeEfficiencyCoef"] = rf.value("code_efficiency_coef").toDouble(1.24);
+        result["rolloffAlpha"] = rf.value("rolloff_alpha").toDouble(0.35);
+        result["txPowerDbm"] = rf.value("tx_power_dbm").toDouble(33.0);
+        result["txAntennaGainDbi"] = rf.value("tx_antenna_gain_dbi").toDouble(3.0);
+    } else {
+        result["carrierFreqMhz"] = root.value("carrierFreqMhz").toDouble(5850.0);
+        result["channelBandwidthKhz"] = root.value("channelBandwidthKhz").toDouble(20000.0);
+        result["modulation"] = root.value("modulation").toString("OQPSK");
+        result["bitsPerSymbol"] = root.value("bitsPerSymbol").toDouble(2.0);
+        result["codeEfficiencyCoef"] = root.value("codeEfficiencyCoef").toDouble(1.24);
+        result["rolloffAlpha"] = root.value("rolloffAlpha").toDouble(0.35);
+        result["txPowerDbm"] = root.value("txPowerDbm").toDouble(33.0);
+        result["txAntennaGainDbi"] = root.value("txAntennaGainDbi").toDouble(3.0);
+    }
+
+    if (root.contains("coding") && root["coding"].isObject()) {
+        QJsonObject cd = root["coding"].toObject();
+        result["codeRateRegister"] = cd.value("code_rate_register").toString();
+        if (cd.contains("code_rate_table") && cd["code_rate_table"].isArray()) {
+            QVariantList crList;
+            QJsonArray crArr = cd["code_rate_table"].toArray();
+            for (const QJsonValue &v : crArr) {
+                if (v.isObject()) {
+                    QVariantMap crMap;
+                    QJsonObject o = v.toObject();
+                    crMap["name"] = o.value("name").toString();
+                    crMap["rate"] = o.value("rate").toDouble();
+                    crMap["hw"] = o.value("hw").toString();
+                    crList.append(crMap);
+                }
+            }
+            result["codeRateTable"] = crList;
+        }
+    } else {
+        result["codeRateRegister"] = root.value("codeRateRegister").toString();
+        result["codeRateTable"] = root.value("codeRateTable").toVariant().toList();
+    }
+
+    result["satelliteJson"] = buildSatelliteJson(result);
+    return result;
+}
+
+bool StationManager::saveSatelliteFile(const QVariantMap &satData)
+{
+    QString id = satData.value("satId").toString().trimmed();
+    if (id.isEmpty()) {
+        id = "SAT-" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    }
+    QString safeId = id;
+    safeId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString dirPath = getSatellitesDirectory();
+    QDir().mkpath(dirPath);
+    QString filePath = QDir(dirPath).filePath(safeId + ".json");
+
+    QString json = buildSatelliteJson(satData);
+    return writeTextFile(filePath, json);
+}
+
+bool StationManager::deleteSatelliteFile(const QString &satId)
+{
+    QString safeId = satId.trimmed();
+    safeId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString dirPath = getSatellitesDirectory();
+    QDir dir(dirPath);
+    QString filePath = dir.filePath(safeId + ".json");
+    if (QFile::exists(filePath)) {
+        return dir.remove(safeId + ".json");
+    }
+    return false;
+}
+
+bool StationManager::saveSatellitesToDisk(const QVariantList &satellites)
+{
+    QString dirPath = getSatellitesDirectory();
+    QDir dir(dirPath);
+    dir.mkpath(".");
+
+    QSet<QString> activeFiles;
+    QJsonArray arr;
+
+    for (const QVariant &item : satellites) {
+        QVariantMap map = item.toMap();
+        QString id = map.value("satId").toString().trimmed();
+        if (id.isEmpty()) {
+            id = "SAT-0" + QString::number(activeFiles.size() + 1);
+            map["satId"] = id;
+        }
+
+        QString safeId = id;
+        safeId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+        QString filename = safeId + ".json";
+        activeFiles.insert(filename);
+
+        QString satJson = buildSatelliteJson(map);
+        writeTextFile(dir.filePath(filename), satJson);
+
+        QJsonDocument doc = QJsonDocument::fromJson(satJson.toUtf8());
+        if (doc.isObject()) {
+            arr.append(doc.object());
+        }
+    }
+
+    QStringList existingJsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files);
+    for (const QString &file : existingJsonFiles) {
+        if (file == "satellites.json") continue;
+        if (!activeFiles.contains(file)) {
+            dir.remove(file);
+        }
+    }
+
+    QJsonDocument aggDoc(arr);
+    writeTextFile(dir.filePath("satellites.json"), QString::fromUtf8(aggDoc.toJson(QJsonDocument::Indented)));
+
+    return true;
+}
+
+QVariantList StationManager::loadSatellitesFromDisk()
+{
+    QVariantList list;
+    QString dirPath = getSatellitesDirectory();
+    QDir dir(dirPath);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
+    QSet<QString> loadedIds;
+    QStringList jsonFiles = dir.entryList(QStringList() << "*.json", QDir::Files, QDir::Name);
+
+    for (const QString &file : jsonFiles) {
+        if (file == "satellites.json") continue;
+        QString content = readTextFile(dir.filePath(file));
+        if (content.trimmed().isEmpty()) continue;
+
+        QVariantMap parsed = parseSatelliteJson(content);
+        if (parsed.value("valid", false).toBool()) {
+            QString id = parsed.value("satId").toString();
+            if (!id.isEmpty() && !loadedIds.contains(id)) {
+                loadedIds.insert(id);
+                list.append(parsed);
+            }
+        }
+    }
+
+    // Default seed satellites if folder is empty
+    if (list.isEmpty()) {
+        QVariantMap iss;
+        iss["satId"] = "SAT-01";
+        iss["name"] = "ISS (ZARYA)";
+        iss["tle1"] = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994";
+        iss["tle2"] = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665";
+        iss["carrierFreqMhz"] = 5850.0;
+        iss["channelBandwidthKhz"] = 20000.0;
+        iss["modulation"] = "OQPSK";
+        iss["bitsPerSymbol"] = 2.0;
+        iss["codeEfficiencyCoef"] = 1.24;
+        iss["rolloffAlpha"] = 0.35;
+        iss["txPowerDbm"] = 33.0;
+        iss["txAntennaGainDbi"] = 3.0;
+        iss["codeRateRegister"] = "0x40001000";
+
+        QVariantMap poly;
+        poly["satId"] = "SAT-02";
+        poly["name"] = "POLYITAN-3-PUT (LEO)";
+        poly["tle1"] = "1 99999U 24001A   26290.18000000  .00010000  00000+0  20000-3 0  9991";
+        poly["tle2"] = "2 99999  97.4000 120.0000 0012000  90.0000 270.0000 15.15000000012345";
+        poly["carrierFreqMhz"] = 5840.0;
+        poly["channelBandwidthKhz"] = 10000.0;
+        poly["modulation"] = "QPSK";
+        poly["bitsPerSymbol"] = 2.0;
+        poly["codeEfficiencyCoef"] = 1.24;
+        poly["rolloffAlpha"] = 0.35;
+        poly["txPowerDbm"] = 33.0;
+        poly["txAntennaGainDbi"] = 3.0;
+        poly["codeRateRegister"] = "0x40001000";
+
+        QVariantList polyRates;
+        auto addRate = [&](const QString &nm, double rt, const QString &hw) {
+            QVariantMap r;
+            r["name"] = nm; r["rate"] = rt; r["hw"] = hw;
+            polyRates.append(r);
+        };
+        addRate("R1", 0.910, "0");
+        addRate("R2", 0.830, "1");
+        addRate("R3", 0.700, "2");
+        addRate("R4", 0.570, "3");
+        addRate("R5", 0.410, "4");
+        addRate("R6", 0.285, "5");
+        addRate("R7", 0.190, "6");
+        poly["codeRateTable"] = polyRates;
+
+        saveSatelliteFile(iss);
+        saveSatelliteFile(poly);
+
+        list.append(parseSatelliteJson(buildSatelliteJson(iss)));
+        list.append(parseSatelliteJson(buildSatelliteJson(poly)));
+    }
+
+    return list;
+}
+
+// =========================================================================
+// HISTORY SESSIONS PERSISTENCE & DIRECTORY STRUCTURE
+// =========================================================================
+
+QString StationManager::getHistoryDirectory() const
+{
+    QString baseDir;
+    QString portablePath = QCoreApplication::applicationDirPath() + "/history";
+    if (QDir(portablePath).exists()) {
+        return QDir(portablePath).absolutePath();
+    }
+
+    baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (baseDir.isEmpty()) {
+        baseDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    }
+    if (baseDir.isEmpty()) {
+        baseDir = QDir::homePath() + "/AppData/Roaming/satcomhub";
+    }
+
+    if (baseDir.endsWith("/satcomhub/satcomhub", Qt::CaseInsensitive)) {
+        baseDir = baseDir.left(baseDir.length() - 10);
+    }
+
+    QDir dir(baseDir + "/history");
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return dir.absolutePath();
+}
+
+void StationManager::openHistoryFolder()
+{
+    QString path = getHistoryDirectory();
+    QDir().mkpath(path);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+QVariantMap StationManager::saveHistorySession(const QVariantMap &sessionMeta,
+                                               const QVariantMap &satelliteData,
+                                               const QVariantList &stationsList)
+{
+    QString historyDir = getHistoryDirectory();
+    QDir().mkpath(historyDir);
+
+    QString sid = sessionMeta.value("sessionId").toString().trimmed();
+    if (sid.isEmpty()) {
+        QString timeTag = QDateTime::currentDateTimeUtc().toString("yyyyMMdd_hhmmss");
+        QString satTag = sessionMeta.value("satelliteName", "Session").toString().trimmed();
+        satTag.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+        sid = "SESSION_" + timeTag + "_" + satTag;
+    }
+    QString safeSid = sid;
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = historyDir + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    sessionDir.mkpath("stations");
+
+    // 1. Write satellite.json if satellite data is valid
+    if (!satelliteData.isEmpty()) {
+        QString satJson = buildSatelliteJson(satelliteData);
+        writeTextFile(sessionDir.filePath("satellite.json"), satJson);
+    }
+
+    // 2. Write stations/<stationId>.json
+    int stCount = 0;
+    QJsonArray stationIdsArr;
+    for (const QVariant &stVal : stationsList) {
+        QVariantMap stMap = stVal.toMap();
+        QString stId = stMap.value("stationId").toString().trimmed();
+        if (stId.isEmpty()) stId = "GS-" + QString::number(stCount + 1);
+        QString safeStId = stId;
+        safeStId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+        QString stJson = buildStationJson(stMap);
+        writeTextFile(sessionDir.filePath("stations/" + safeStId + ".json"), stJson);
+        stationIdsArr.append(stId);
+        stCount++;
+    }
+
+    // 2b. Write telemetry.json if SNR data is provided
+    if (sessionMeta.contains("snrData")) {
+        QVariant snrVar = sessionMeta.value("snrData");
+        QJsonDocument snrDoc;
+        if (snrVar.userType() == QMetaType::QVariantMap) {
+            snrDoc = QJsonDocument(QJsonObject::fromVariantMap(snrVar.toMap()));
+        } else if (snrVar.userType() == QMetaType::QString) {
+            snrDoc = QJsonDocument::fromJson(snrVar.toString().toUtf8());
+        }
+        if (!snrDoc.isNull()) {
+            writeTextFile(sessionDir.filePath("telemetry.json"), QString::fromUtf8(snrDoc.toJson(QJsonDocument::Indented)));
+        }
+    }
+
+    // 3. Write session.json metadata
+    QJsonObject sessObj;
+    sessObj["sessionId"] = safeSid;
+    sessObj["sessionName"] = sessionMeta.value("sessionName", safeSid).toString();
+    sessObj["dateUtc"] = sessionMeta.value("dateUtc", QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss 'UTC'")).toString();
+    sessObj["combinedAosUtc"] = sessionMeta.value("combinedAosUtc", "").toString();
+    sessObj["combinedLosUtc"] = sessionMeta.value("combinedLosUtc", "").toString();
+    sessObj["durationSeconds"] = sessionMeta.value("durationSeconds", 0).toDouble();
+    sessObj["durationFormatted"] = sessionMeta.value("durationFormatted", "--").toString();
+    sessObj["satelliteId"] = satelliteData.value("satId", sessionMeta.value("satelliteId", "")).toString();
+    sessObj["satelliteName"] = satelliteData.value("name", sessionMeta.value("satelliteName", "None")).toString();
+    sessObj["stationCount"] = stCount;
+    sessObj["stationIds"] = stationIdsArr;
+    sessObj["status"] = sessionMeta.value("status", "Planned").toString();
+    sessObj["notes"] = sessionMeta.value("notes", "").toString();
+    sessObj["maxSnrDb"] = sessionMeta.value("maxSnrDb", 0.0).toDouble();
+    sessObj["meanSnrDb"] = sessionMeta.value("meanSnrDb", 0.0).toDouble();
+    sessObj["maxElevationDeg"] = sessionMeta.value("maxElevationDeg", 0.0).toDouble();
+    sessObj["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    QJsonDocument sessDoc(sessObj);
+    writeTextFile(sessionDir.filePath("session.json"), QString::fromUtf8(sessDoc.toJson(QJsonDocument::Indented)));
+
+    QVariantMap res = sessObj.toVariantMap();
+    res["valid"] = true;
+    return res;
+}
+
+QVariantList StationManager::loadHistorySessions()
+{
+    QVariantList list;
+    QString historyDir = getHistoryDirectory();
+    QDir dir(historyDir);
+    if (!dir.exists()) return list;
+
+    QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+    for (const QString &sub : subdirs) {
+        QString sessPath = dir.filePath(sub + "/session.json");
+        if (!QFile::exists(sessPath)) continue;
+
+        QString json = readTextFile(sessPath);
+        QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+        if (!doc.isObject()) continue;
+
+        QVariantMap map = doc.object().toVariantMap();
+        map["valid"] = true;
+        map["sessionFolder"] = sub;
+        list.append(map);
+    }
+
+    return list;
+}
+
+QVariantMap StationManager::loadHistorySessionDetails(const QString &sessionId)
+{
+    QVariantMap result;
+    result["valid"] = false;
+
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    if (!sessionDir.exists()) return result;
+
+    QString sessJsonPath = sessionDir.filePath("session.json");
+    if (QFile::exists(sessJsonPath)) {
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(sessJsonPath).toUtf8());
+        if (doc.isObject()) {
+            result["session"] = doc.object().toVariantMap();
+        }
+    }
+
+    // Load satellite.json if present
+    QString satJsonPath = sessionDir.filePath("satellite.json");
+    if (QFile::exists(satJsonPath)) {
+        QVariantMap sat = parseSatelliteJson(readTextFile(satJsonPath));
+        if (sat.value("valid", false).toBool()) {
+            result["satellite"] = sat;
+            result["hasSatellite"] = true;
+        } else {
+            result["hasSatellite"] = false;
+        }
+    } else {
+        result["hasSatellite"] = false;
+    }
+
+    // Load stations/*.json
+    QVariantList stationsList;
+    QDir stationsDir(sessionDir.filePath("stations"));
+    if (stationsDir.exists()) {
+        QStringList stFiles = stationsDir.entryList(QStringList() << "*.json", QDir::Files, QDir::Name);
+        for (const QString &file : stFiles) {
+            QString content = readTextFile(stationsDir.filePath(file));
+            QVariantMap parsed = parseStationJson(content);
+            if (parsed.value("valid", false).toBool()) {
+                stationsList.append(parsed);
+            }
+        }
+    }
+    result["stations"] = stationsList;
+    result["hasStations"] = !stationsList.isEmpty();
+
+    // Load telemetry.json if present
+    QString telemPath = sessionDir.filePath("telemetry.json");
+    if (QFile::exists(telemPath)) {
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(telemPath).toUtf8());
+        if (doc.isObject()) {
+            result["snrProfileData"] = doc.object().toVariantMap();
+            result["hasSnrData"] = true;
+        } else {
+            result["hasSnrData"] = false;
+        }
+    } else {
+        result["hasSnrData"] = false;
+    }
+
+    result["valid"] = true;
+
+    return result;
+}
+
+bool StationManager::updateHistorySessionSatellite(const QString &sessionId, const QVariantMap &satData)
+{
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    if (!sessionDir.exists()) return false;
+
+    QString satJson = buildSatelliteJson(satData);
+    bool ok = writeTextFile(sessionDir.filePath("satellite.json"), satJson);
+
+    // Update session.json
+    QString sessPath = sessionDir.filePath("session.json");
+    if (QFile::exists(sessPath)) {
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(sessPath).toUtf8());
+        if (doc.isObject()) {
+            QJsonObject obj = doc.object();
+            obj["satelliteId"] = satData.value("satId", "").toString();
+            obj["satelliteName"] = satData.value("name", "Satellite").toString();
+            writeTextFile(sessPath, QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Indented)));
+        }
+    }
+
+    return ok;
+}
+
+bool StationManager::updateHistorySessionStation(const QString &sessionId, const QVariantMap &stationData)
+{
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    if (!sessionDir.exists()) return false;
+    sessionDir.mkpath("stations");
+
+    QString stId = stationData.value("stationId").toString().trimmed();
+    if (stId.isEmpty()) {
+        stId = "GS-" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    }
+    QString safeStId = stId;
+    safeStId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString stJson = buildStationJson(stationData);
+    bool ok = writeTextFile(sessionDir.filePath("stations/" + safeStId + ".json"), stJson);
+
+    // Update session.json count
+    QString sessPath = sessionDir.filePath("session.json");
+    if (QFile::exists(sessPath)) {
+        QDir stDir(sessionDir.filePath("stations"));
+        int cnt = stDir.entryList(QStringList() << "*.json", QDir::Files).count();
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(sessPath).toUtf8());
+        if (doc.isObject()) {
+            QJsonObject obj = doc.object();
+            obj["stationCount"] = cnt;
+            writeTextFile(sessPath, QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Indented)));
+        }
+    }
+
+    return ok;
+}
+
+bool StationManager::deleteHistorySessionStation(const QString &sessionId, const QString &stationId)
+{
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString safeStId = stationId.trimmed();
+    safeStId.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString filePath = getHistoryDirectory() + "/" + safeSid + "/stations/" + safeStId + ".json";
+    if (QFile::exists(filePath)) {
+        QFile::remove(filePath);
+    }
+
+    // Update count in session.json
+    QString sessPath = getHistoryDirectory() + "/" + safeSid + "/session.json";
+    if (QFile::exists(sessPath)) {
+        QDir stDir(getHistoryDirectory() + "/" + safeSid + "/stations");
+        int cnt = stDir.entryList(QStringList() << "*.json", QDir::Files).count();
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(sessPath).toUtf8());
+        if (doc.isObject()) {
+            QJsonObject obj = doc.object();
+            obj["stationCount"] = cnt;
+            writeTextFile(sessPath, QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Indented)));
+        }
+    }
+
+    return true;
+}
+
+QVariantMap StationManager::createBlankHistorySession(const QString &customName)
+{
+    QString timeTag = QDateTime::currentDateTimeUtc().toString("yyyyMMdd_hhmmss");
+    QString sid = "SESSION_" + timeTag + "_Manual";
+    QString safeSid = sid;
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    sessionDir.mkpath("stations");
+
+    QJsonObject sessObj;
+    sessObj["sessionId"] = safeSid;
+    sessObj["sessionName"] = customName.isEmpty() ? ("Manual Session " + QDateTime::currentDateTimeUtc().toString("dd.MM.yyyy hh:mm")) : customName;
+    sessObj["dateUtc"] = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss 'UTC'");
+    sessObj["combinedAosUtc"] = "";
+    sessObj["combinedLosUtc"] = "";
+    sessObj["durationSeconds"] = 0;
+    sessObj["durationFormatted"] = "--";
+    sessObj["satelliteId"] = "";
+    sessObj["satelliteName"] = "None";
+    sessObj["stationCount"] = 0;
+    sessObj["stationIds"] = QJsonArray();
+    sessObj["status"] = "Draft";
+    sessObj["notes"] = "";
+    sessObj["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+    writeTextFile(sessionDir.filePath("session.json"), QString::fromUtf8(QJsonDocument(sessObj).toJson(QJsonDocument::Indented)));
+
+    QVariantMap res = sessObj.toVariantMap();
+    res["valid"] = true;
+    return res;
+}
+
+bool StationManager::deleteHistorySession(const QString &sessionId)
+{
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir dir(sessionFolderPath);
+    if (dir.exists()) {
+        return dir.removeRecursively();
+    }
+    return false;
+}

@@ -11,6 +11,7 @@ Rectangle {
 
     signal observationSelected(var obsItem)
     signal addObservationRequested()
+    signal deleteObservationRequested(string sessionId)
 
     radius: 12
     clip: true
@@ -112,8 +113,10 @@ Rectangle {
                 implicitHeight: cardCol.implicitHeight + 14
                 radius: 8
 
+                property string itemSessionId: (model.sessionId && model.sessionId.length > 0) ? model.sessionId : (model.obsId || "")
                 property bool isSelected: historySidebarRoot.selectedObservation && 
-                                          historySidebarRoot.selectedObservation.obsId === model.obsId
+                                          ((historySidebarRoot.selectedObservation.sessionId && historySidebarRoot.selectedObservation.sessionId === itemSessionId) ||
+                                           (historySidebarRoot.selectedObservation.obsId && historySidebarRoot.selectedObservation.obsId === itemSessionId))
 
                 color: isSelected ? 
                        (historySidebarRoot.lightMode ? "#e6fcf5" : "#0d2b23") : 
@@ -133,6 +136,34 @@ Rectangle {
                     visible: obsCard.isSelected
                 }
 
+                // Background click area
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var obs = {
+                            sessionId: obsCard.itemSessionId,
+                            obsId: obsCard.itemSessionId,
+                            sessionName: model.sessionName || obsCard.itemSessionId,
+                            satelliteName: model.satelliteName || "",
+                            stationName: model.stationName || "",
+                            dateTimeUtc: model.dateTimeUtc || model.dateUtc || "",
+                            dateUtc: model.dateUtc || model.dateTimeUtc || "",
+                            durationFormatted: model.durationFormatted || "--",
+                            maxSnrDb: model.maxSnrDb || 0,
+                            meanSnrDb: model.meanSnrDb || 0,
+                            maxElevationDeg: model.maxElevationDeg || 0,
+                            status: model.status || "Planned",
+                            decodedFrames: model.decodedFrames || 0,
+                            totalFrames: model.totalFrames || 0,
+                            operator: model.operator || "",
+                            notes: model.notes || ""
+                        }
+                        historySidebarRoot.selectedObservation = obs
+                        historySidebarRoot.observationSelected(obs)
+                    }
+                }
+
                 ColumnLayout {
                     id: cardCol
                     anchors.fill: parent
@@ -147,31 +178,55 @@ Rectangle {
                         spacing: 6
 
                         Label {
-                            text: model.obsId
+                            text: obsCard.itemSessionId
                             font.bold: true
                             font.pixelSize: 11
                             color: obsCard.isSelected ? "#20c997" : (historySidebarRoot.lightMode ? "#212529" : "#ffffff")
                             Layout.fillWidth: true
+                            elide: Text.ElideRight
                         }
 
                         Rectangle {
                             height: 16
                             width: statusText.implicitWidth + 8
                             radius: 4
-                            color: model.status === "Decoded" ? "#2f9e44" : (model.status === "Partial" ? "#f59f00" : "#868e96")
+                            color: model.status === "Decoded" ? "#2f9e44" : 
+                                   (model.status === "Planned" ? "#228be6" : 
+                                   (model.status === "Partial" ? "#f59f00" : "#868e96"))
                             Text {
                                 id: statusText
                                 anchors.centerIn: parent
-                                text: model.status
+                                text: model.status || "Planned"
                                 font.bold: true
                                 font.pixelSize: 9
                                 color: "#ffffff"
                             }
                         }
+
+                        Button {
+                            height: 18
+                            width: 18
+                            background: Rectangle {
+                                radius: 3
+                                color: parent.hovered ? "#fa5252" : "transparent"
+                            }
+                            contentItem: Text {
+                                text: "✕"
+                                font.pixelSize: 10
+                                color: parent.hovered ? "#ffffff" : (historySidebarRoot.lightMode ? "#adb5bd" : "#5c657e")
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Delete Session")
+                            onClicked: {
+                                historySidebarRoot.deleteObservationRequested(obsCard.itemSessionId)
+                            }
+                        }
                     }
 
                     Label {
-                        text: "🛰️ " + model.satelliteName + " • 📡 " + model.stationName
+                        text: "🛰️ " + (model.satelliteName || "None") + " • 📡 " + (model.stationName || (model.stationCount !== undefined ? (model.stationCount + " Stations") : "Station"))
                         font.pixelSize: 10
                         color: historySidebarRoot.lightMode ? "#495057" : "#ced4da"
                         elide: Text.ElideRight
@@ -183,43 +238,20 @@ Rectangle {
                         spacing: 8
 
                         Label {
-                            text: model.dateTimeUtc
+                            text: model.dateTimeUtc || model.dateUtc || ""
                             font.pixelSize: 9
                             font.family: "monospace"
                             color: historySidebarRoot.lightMode ? "#868e96" : "#909296"
                             Layout.fillWidth: true
+                            elide: Text.ElideRight
                         }
 
                         Label {
-                            text: "Max " + model.maxSnrDb + " dB"
+                            text: (model.maxSnrDb !== undefined && model.maxSnrDb > 0) ? ("Max " + model.maxSnrDb + " dB") : (model.durationFormatted || "--")
                             font.bold: true
                             font.pixelSize: 10
                             color: "#339af0"
                         }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        var obs = {
-                            obsId: model.obsId,
-                            satelliteName: model.satelliteName,
-                            stationName: model.stationName,
-                            dateTimeUtc: model.dateTimeUtc,
-                            durationFormatted: model.durationFormatted,
-                            maxSnrDb: model.maxSnrDb,
-                            meanSnrDb: model.meanSnrDb,
-                            maxElevationDeg: model.maxElevationDeg,
-                            status: model.status,
-                            decodedFrames: model.decodedFrames,
-                            totalFrames: model.totalFrames,
-                            operator: model.operator,
-                            notes: model.notes
-                        }
-                        historySidebarRoot.selectedObservation = obs
-                        historySidebarRoot.observationSelected(obs)
                     }
                 }
             }
