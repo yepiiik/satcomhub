@@ -8,7 +8,12 @@ Item {
     anchors.fill: parent
 
     property var stationsModel: null
+    property var stationsList: []
+    property var stationsMap: ({})
     property var satellitesModel: null
+    property var satellitesList: []
+    property var satellitesMap: ({})
+    property var satelliteTracksMap: ({})
     property string selectedStationId: ""
     property string selectedSatelliteId: ""
     property real targetSatelliteAltitudeKm: 500.0
@@ -107,39 +112,44 @@ Item {
 
         // Satellite Ground Track Trajectories (previous 50%, current 100%, next 50%)
         MapItemView {
-            model: mercatorView.satellitesModel
+            model: (mercatorView.satellitesList && mercatorView.satellitesList.length > 0)
+                   ? mercatorView.satellitesList
+                   : mercatorView.satellitesModel
             delegate: MapItemGroup {
                 id: trackGroup
-                property bool isSelected: mercatorView.selectedSatelliteId === model.satId
-                property var currentTraj: (typeof model !== "undefined" && model) ? model.trajectory : null
-                property var prevTraj: (typeof model !== "undefined" && model) ? model.prevTrajectory : null
-                property var nextTraj: (typeof model !== "undefined" && model) ? model.nextTrajectory : null
+                property var satData: typeof modelData !== "undefined" ? modelData : model
+                property string currentSatId: satData ? satData.satId : ""
+                property bool isSelected: mercatorView.selectedSatelliteId === currentSatId
+                property var satTracks: (mercatorView.satelliteTracksMap && currentSatId && mercatorView.satelliteTracksMap[currentSatId]) ? mercatorView.satelliteTracksMap[currentSatId] : null
+                property var currentTraj: satTracks ? satTracks.current : (satData ? satData.trajectory : null)
+                property var prevTraj: satTracks ? satTracks.previous : (satData ? satData.prevTrajectory : null)
+                property var nextTraj: satTracks ? satTracks.next : (satData ? satData.nextTrajectory : null)
 
-                // Previous Orbit Trajectory (50% opacity, dashed)
+                // Previous Orbit Trajectory (40% opacity)
                 Repeater {
-                    model: MapUtils.buildDashedPolylineSegments(trackGroup.prevTraj, QtPositioning)
+                    model: MapUtils.splitTrajectorySegments(trackGroup.prevTraj, QtPositioning)
                     MapPolyline {
-                        line.width: trackGroup.isSelected ? 2.5 : 1.5
+                        line.width: trackGroup.isSelected ? 2.0 : 1.2
                         line.color: trackGroup.isSelected ? "#ffd43b" : "#fab005"
-                        opacity: 0.50
+                        opacity: 0.40
                         path: modelData
                     }
                 }
 
-                // Next Orbit Trajectory (50% opacity, dashed)
+                // Next Orbit Trajectory (40% opacity)
                 Repeater {
-                    model: MapUtils.buildDashedPolylineSegments(trackGroup.nextTraj, QtPositioning)
+                    model: MapUtils.splitTrajectorySegments(trackGroup.nextTraj, QtPositioning)
                     MapPolyline {
-                        line.width: trackGroup.isSelected ? 2.5 : 1.5
+                        line.width: trackGroup.isSelected ? 2.0 : 1.2
                         line.color: trackGroup.isSelected ? "#ffd43b" : "#fab005"
-                        opacity: 0.50
+                        opacity: 0.40
                         path: modelData
                     }
                 }
 
-                // Current Orbit Trajectory (100% opacity, dashed)
+                // Current Orbit Trajectory (100% opacity)
                 Repeater {
-                    model: MapUtils.buildDashedPolylineSegments(trackGroup.currentTraj, QtPositioning)
+                    model: MapUtils.splitTrajectorySegments(trackGroup.currentTraj, QtPositioning)
                     MapPolyline {
                         line.width: trackGroup.isSelected ? 3.0 : 2.0
                         line.color: trackGroup.isSelected ? "#ffd43b" : "#fab005"

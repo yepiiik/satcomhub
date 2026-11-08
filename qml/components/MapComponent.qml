@@ -7,7 +7,12 @@ Item {
 
     // Data models
     property var stationsModel: null
+    property var stationsList: []
+    property var stationsMap: ({})
     property var satellitesModel: null
+    property var satellitesList: []
+    property var satellitesMap: ({})
+    property var satelliteTracksMap: ({})
 
     // Selection state
     property string selectedStationId: ""
@@ -93,7 +98,12 @@ Item {
         id: mercatorView
         visible: root.projectionMode === "mercator"
         stationsModel: root.stationsModel
+        stationsList: root.stationsList
+        stationsMap: root.stationsMap
         satellitesModel: root.satellitesModel
+        satellitesList: root.satellitesList
+        satellitesMap: root.satellitesMap
+        satelliteTracksMap: root.satelliteTracksMap
         selectedStationId: root.selectedStationId
         selectedSatelliteId: root.selectedSatelliteId
         targetSatelliteAltitudeKm: root.targetSatelliteAltitudeKm
@@ -115,7 +125,12 @@ Item {
         id: equiView
         visible: root.projectionMode === "equirectangular"
         stationsModel: root.stationsModel
+        stationsList: root.stationsList
+        stationsMap: root.stationsMap
         satellitesModel: root.satellitesModel
+        satellitesList: root.satellitesList
+        satellitesMap: root.satellitesMap
+        satelliteTracksMap: root.satelliteTracksMap
         selectedStationId: root.selectedStationId
         selectedSatelliteId: root.selectedSatelliteId
         targetSatelliteAltitudeKm: root.targetSatelliteAltitudeKm
@@ -162,27 +177,47 @@ Item {
 
         onRecenterRequested: () => {
             if (root.selectedStationId !== "") {
-                for (var i = 0; i < root.stationsModel.count; i++) {
-                    var st = root.stationsModel.get(i)
-                    if (st.stationId === root.selectedStationId) {
+                if (root.stationsMap && root.stationsMap[root.selectedStationId]) {
+                    var st = root.stationsMap[root.selectedStationId]
+                    if (root.projectionMode === "mercator") {
+                        mercatorView.focusOnCoordinate(st.latitude, st.longitude, 5)
+                    } else {
+                        equiView.equiZoomScale = equiView.minZoomScale
+                        equiView.focusOnCoordinate(st.latitude, st.longitude)
+                    }
+                    return
+                }
+                for (var i = 0; i < root.stationsList.length; i++) {
+                    var stItem = root.stationsList[i]
+                    if (stItem.stationId === root.selectedStationId) {
                         if (root.projectionMode === "mercator") {
-                            mercatorView.focusOnCoordinate(st.latitude, st.longitude, 5)
+                            mercatorView.focusOnCoordinate(stItem.latitude, stItem.longitude, 5)
                         } else {
                             equiView.equiZoomScale = equiView.minZoomScale
-                            equiView.focusOnCoordinate(st.latitude, st.longitude)
+                            equiView.focusOnCoordinate(stItem.latitude, stItem.longitude)
                         }
                         return
                     }
                 }
             } else if (root.selectedSatelliteId !== "") {
-                for (var j = 0; j < root.satellitesModel.count; j++) {
-                    var sat = root.satellitesModel.get(j)
-                    if (sat.satId === root.selectedSatelliteId) {
+                if (root.satellitesMap && root.satellitesMap[root.selectedSatelliteId]) {
+                    var sat = root.satellitesMap[root.selectedSatelliteId]
+                    if (root.projectionMode === "mercator") {
+                        mercatorView.focusOnCoordinate(sat.latitude, sat.longitude, 3.5)
+                    } else {
+                        equiView.equiZoomScale = equiView.minZoomScale
+                        equiView.focusOnCoordinate(sat.latitude, sat.longitude)
+                    }
+                    return
+                }
+                for (var j = 0; j < root.satellitesList.length; j++) {
+                    var satItem = root.satellitesList[j]
+                    if (satItem.satId === root.selectedSatelliteId) {
                         if (root.projectionMode === "mercator") {
-                            mercatorView.focusOnCoordinate(sat.latitude, sat.longitude, 3.5)
+                            mercatorView.focusOnCoordinate(satItem.latitude, satItem.longitude, 3.5)
                         } else {
                             equiView.equiZoomScale = equiView.minZoomScale
-                            equiView.focusOnCoordinate(sat.latitude, sat.longitude)
+                            equiView.focusOnCoordinate(satItem.latitude, satItem.longitude)
                         }
                         return
                     }

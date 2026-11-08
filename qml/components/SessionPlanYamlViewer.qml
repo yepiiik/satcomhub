@@ -11,6 +11,42 @@ Popup {
     property color accentColor: "#e67700" // warm amber / gold for mission plans
     property var stationManager: null
 
+    property string documentTitle: qsTr("Session Plan YAML Document")
+    property string headerIcon: "📄"
+    property string copyButtonText: qsTr("📋 Copy YAML")
+    property string exportButtonText: qsTr("💾 Export to YAML File")
+    property string defaultFileName: "session_plan.yaml"
+    property string fileDialogFilter: "YAML Files (*.yaml *.yml)"
+    property bool isJsonMode: false
+
+    function openForYaml(subtitle, yamlText, suggestedFileName) {
+        root.isJsonMode = false
+        root.accentColor = "#e67700"
+        root.documentTitle = qsTr("Session Plan YAML Document")
+        root.headerIcon = "📄"
+        root.copyButtonText = qsTr("📋 Copy YAML")
+        root.exportButtonText = qsTr("💾 Export to YAML File")
+        root.defaultFileName = suggestedFileName || "session_plan.yaml"
+        root.fileDialogFilter = "YAML Files (*.yaml *.yml)"
+        root.sessionTitle = subtitle || qsTr("Adaptive Coding & Modulation Transmission Schedule")
+        root.yamlContent = yamlText || ""
+        root.open()
+    }
+
+    function openForJson(docTitle, subtitle, jsonText, suggestedFileName) {
+        root.isJsonMode = true
+        root.accentColor = "#339af0"
+        root.documentTitle = docTitle || qsTr("Module JSON Document")
+        root.headerIcon = "{ }"
+        root.copyButtonText = qsTr("📋 Copy JSON")
+        root.exportButtonText = qsTr("💾 Export to JSON File")
+        root.defaultFileName = suggestedFileName || "module_data.json"
+        root.fileDialogFilter = "JSON Files (*.json)"
+        root.sessionTitle = subtitle || qsTr("Python Module Data Payload")
+        root.yamlContent = jsonText || "{}"
+        root.open()
+    }
+
     signal exportRequested(string yamlText)
     signal copyRequested()
 
@@ -74,8 +110,10 @@ Popup {
                 color: root.accentColor
                 Text {
                     anchors.centerIn: parent
-                    text: "📄"
-                    font.pixelSize: 16
+                    text: root.headerIcon
+                    font.bold: root.isJsonMode
+                    font.pixelSize: root.isJsonMode ? 14 : 16
+                    color: "#ffffff"
                 }
             }
 
@@ -83,7 +121,7 @@ Popup {
                 Layout.fillWidth: true
                 spacing: 2
                 Label {
-                    text: qsTr("Session Plan YAML Document")
+                    text: root.documentTitle
                     font.bold: true
                     font.pixelSize: 16
                     color: root.lightMode ? "#212529" : "#ffffff"
@@ -134,7 +172,9 @@ Popup {
                 wrapMode: TextEdit.NoWrap
                 font.family: "Consolas, 'Courier New', monospace"
                 font.pixelSize: 12
-                color: root.lightMode ? "#d9480f" : "#ff922b" // warm yaml coloration
+                color: root.isJsonMode
+                       ? (root.lightMode ? "#1864ab" : "#74c0fc")
+                       : (root.lightMode ? "#d9480f" : "#ff922b")
                 selectByMouse: true
                 background: Rectangle {
                     radius: 8
@@ -152,7 +192,7 @@ Popup {
 
             Button {
                 id: copyBtn
-                text: qsTr("📋 Copy YAML")
+                text: root.copyButtonText
                 implicitHeight: 34
                 background: Rectangle {
                     radius: 6
@@ -180,7 +220,7 @@ Popup {
 
             Button {
                 id: exportBtn
-                text: qsTr("💾 Export to YAML File")
+                text: root.exportButtonText
                 implicitHeight: 34
                 background: Rectangle {
                     radius: 6

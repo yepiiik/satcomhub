@@ -269,7 +269,7 @@ JointSessionSnrResult SignalLossModel::computeJointSessionSnr(
                 double rangeRate = topo.rangeRate;
 
                 series.elevationDeg[k] = std::round(elDeg * 100.0) / 100.0;
-                series.azimuthDeg[k] = std::round(azDeg * 10.0) / 100.0;
+                series.azimuthDeg[k] = std::round(azDeg * 100.0) / 100.0;
                 series.slantRangeKm[k] = std::round(rangeKm * 10.0) / 10.0;
 
                 if (elDeg >= stationConfigs[s].minElDeg) {
