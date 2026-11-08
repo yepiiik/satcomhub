@@ -192,6 +192,18 @@ Rectangle {
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
+
+                        Label {
+                            property real fGhz: (model.carrierFreqMhz !== undefined ? Number(model.carrierFreqMhz) : 5850.0) / 1000.0
+                            property real bMhz: (model.channelBandwidthKhz !== undefined ? Number(model.channelBandwidthKhz) : 20000.0) / 1000.0
+                            property string modName: model.modulation || "OQPSK"
+                            text: "f=" + fGhz.toFixed(2).replace(/\.?0+$/, "") + " GHz • B=" + bMhz.toFixed(2).replace(/\.?0+$/, "") + " MHz • " + modName
+                            font.pixelSize: 10
+                            font.family: "monospace"
+                            color: objectsSidebarRoot.lightMode ? "#6c757d" : "#909296"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
                     }
 
                     // Pass Planning Button
@@ -228,7 +240,7 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                         }
                         ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Edit TLE")
+                        ToolTip.text: qsTr("Edit Satellite & RF Configuration")
                         onClicked: objectsSidebarRoot.editSatelliteRequested(model)
                     }
 

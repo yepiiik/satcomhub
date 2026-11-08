@@ -35,8 +35,14 @@ ApplicationWindow {
     property bool pickOnMapActive: false
     property string selectedStationId: ""
     property string selectedSatelliteId: ""
+    property int satelliteConfigVersion: 0
     property real currentSatAltKm: 500.0
     property string currentSatName: "Default LEO (500 km)"
+    property var satelliteTracksMap: ({})
+    property var satellitesList: []
+    property var satellitesMap: ({})
+    property var stationsList: []
+    property var stationsMap: ({})
 
     // Planning state
     property var planningPassResult: null
@@ -300,13 +306,32 @@ ApplicationWindow {
         lightMode: window.lightMode
         accentColor: window.accentColor
         stationManager: stationManager
+        stationFactorModulesMap: window.stationFactorModulesMap
+        recentModulesList: window.recentModulesList
+
+        onBrowseStationModuleRequested: (stationId) => {
+            var selectedPath = pythonModuleRunner.selectPythonModuleDialog()
+            if (selectedPath && selectedPath.length > 0) {
+                window.addFactorModuleToStation(stationId, selectedPath)
+            }
+        }
+
+        onAddRecentStationModuleRequested: (stationId, modulePath) => {
+            window.addFactorModuleToStation(stationId, modulePath)
+        }
+
+        onRemoveStationModuleRequested: (stationId, moduleIdx) => {
+            window.removeFactorModuleFromStation(stationId, moduleIdx)
+        }
 
         onStationCommitted: (data, isEdit) => {
             if (isEdit) {
                 for (var i = 0; i < stationsModel.count; i++) {
-                    if (stationsModel.get(i).stationId === data.stationId) {
+                    var cachedSt = (window.stationsList && i < window.stationsList.length) ? window.stationsList[i] : null
+                    var matchId = cachedSt ? cachedSt.stationId : ""
+                    if (matchId === data.stationId) {
                         if (data.active === undefined) {
-                            data.active = stationsModel.get(i).active !== false
+                            data.active = cachedSt.active !== false
                         }
                         stationsModel.set(i, data)
                         break
@@ -322,11 +347,14 @@ ApplicationWindow {
                 stationsModel.append(data)
                 window.selectedStationId = newId
             }
+            window.syncStationsCache()
             window.syncStationsToDisk()
             mapComponent.focusOnCoordinate(data.latitude, data.longitude)
             mapComponent.removeDraftMarker()
             mapComponent.requestCanvasRedraw()
-            if (window.currentNavTab === 1) {
+            if (window.currentPlanningSession) {
+                window.calculatePlanningSnr(window.currentPlanningSession)
+            } else if (window.currentNavTab === 1) {
                 window.calculateFuturePasses()
             }
         }
@@ -344,34 +372,68 @@ ApplicationWindow {
         propagator: propagator
 
         onSatelliteCommitted: (data, isEdit) => {
+            var tleChanged = false
             if (isEdit) {
                 for (var s = 0; s < satellitesModel.count; s++) {
-                    if (satellitesModel.get(s).satId === data.satId) {
+                    var existingSat = (window.satellitesList && s < window.satellitesList.length) ? window.satellitesList[s] : null
+                    if (existingSat && existingSat.satId === data.satId) {
+                        if (existingSat.tle1 !== data.tle1 || existingSat.tle2 !== data.tle2) {
+                            tleChanged = true
+                        }
                         satellitesModel.setProperty(s, "name", data.name)
                         satellitesModel.setProperty(s, "tle1", data.tle1)
                         satellitesModel.setProperty(s, "tle2", data.tle2)
+                        satellitesModel.setProperty(s, "carrierFreqMhz", data.carrierFreqMhz !== undefined ? data.carrierFreqMhz : 5850.0)
+                        satellitesModel.setProperty(s, "channelBandwidthKhz", data.channelBandwidthKhz !== undefined ? data.channelBandwidthKhz : 20000.0)
+                        satellitesModel.setProperty(s, "modulation", data.modulation || "OQPSK")
+                        satellitesModel.setProperty(s, "bitsPerSymbol", data.bitsPerSymbol !== undefined ? data.bitsPerSymbol : 2.0)
+                        satellitesModel.setProperty(s, "codeEfficiencyCoef", data.codeEfficiencyCoef !== undefined ? data.codeEfficiencyCoef : 1.24)
+                        satellitesModel.setProperty(s, "rolloffAlpha", data.rolloffAlpha !== undefined ? data.rolloffAlpha : 0.35)
+                        satellitesModel.setProperty(s, "txPowerDbm", data.txPowerDbm !== undefined ? data.txPowerDbm : 33.0)
+                        satellitesModel.setProperty(s, "txAntennaGainDbi", data.txAntennaGainDbi !== undefined ? data.txAntennaGainDbi : 3.0)
                         satellitesModel.setProperty(s, "latitude", data.latitude)
                         satellitesModel.setProperty(s, "longitude", data.longitude)
                         satellitesModel.setProperty(s, "altitudeKm", data.altitudeKm)
                         satellitesModel.setProperty(s, "visibilityRadiusMeters", data.visibilityRadiusMeters)
                         satellitesModel.setProperty(s, "velocityKmS", data.velocityKmS || 0)
-                        satellitesModel.setProperty(s, "trajectory", data.trajectory || [])
-                        satellitesModel.setProperty(s, "prevTrajectory", data.prevTrajectory || [])
-                        satellitesModel.setProperty(s, "nextTrajectory", data.nextTrajectory || [])
                         break
                     }
                 }
+                var tracksMapCopy = Object.assign({}, window.satelliteTracksMap)
+                tracksMapCopy[data.satId] = {
+                    current: data.trajectory || [],
+                    previous: data.prevTrajectory || [],
+                    next: data.nextTrajectory || []
+                }
+                window.satelliteTracksMap = tracksMapCopy
                 window.selectSatellite(data.satId, data.latitude, data.longitude, data.altitudeKm, data.name)
             } else {
                 var newSatId = (data.satId && data.satId.length > 0) ? data.satId : ("SAT-0" + (satellitesModel.count + 1))
                 data.satId = newSatId
-                satellitesModel.append(data)
+                var newTracks = {
+                    current: data.trajectory || [],
+                    previous: data.prevTrajectory || [],
+                    next: data.nextTrajectory || []
+                }
+                var appendData = Object.assign({}, data)
+                delete appendData.trajectory
+                delete appendData.prevTrajectory
+                delete appendData.nextTrajectory
+                satellitesModel.append(appendData)
+                var tracksMapCopy2 = Object.assign({}, window.satelliteTracksMap)
+                tracksMapCopy2[newSatId] = newTracks
+                window.satelliteTracksMap = tracksMapCopy2
                 window.selectSatellite(newSatId, data.latitude, data.longitude, data.altitudeKm, data.name)
+                tleChanged = true
             }
+            window.syncSatellitesCache()
+            window.satelliteConfigVersion += 1
             mapComponent.focusOnCoordinate(data.latitude, data.longitude)
             mapComponent.requestCanvasRedraw()
-            if (window.currentNavTab === 1) {
+            if (tleChanged) {
                 window.calculateFuturePasses()
+            } else if (window.currentPlanningSession) {
+                window.calculatePlanningSnr(window.currentPlanningSession)
             }
         }
     }
@@ -429,20 +491,21 @@ ApplicationWindow {
         onTriggered: {
             window.currentUtcString = propagator.currentUtcIsoString()
             window.liveTickCounter++
-            var shouldRefreshTrack = (window.liveTickCounter % 30 === 0)
-            window.updateLiveSatellitePositions(shouldRefreshTrack)
+            if (window.currentNavTab === 0) {
+                window.updateLiveSatellitePositions()
+            }
         }
     }
 
-    function updateLiveSatellitePositions(refreshTrack) {
-        if (!satellitesModel || satellitesModel.count === 0) return
+    function updateLiveSatellitePositions() {
+        if (!satellitesModel || satellitesModel.count === 0 || !window.satellitesList) return
 
-        for (var i = 0; i < satellitesModel.count; i++) {
-            var sat = satellitesModel.get(i)
-            if (!sat.tle1 || !sat.tle2) continue
+        for (var i = 0; i < window.satellitesList.length; i++) {
+            var satInfo = window.satellitesList[i]
+            if (!satInfo || !satInfo.tle1 || !satInfo.tle2) continue
 
-            var prop = propagator.propagateTle(sat.tle1, sat.tle2, 0.0)
-            if (prop.valid) {
+            var prop = propagator.propagateTle(satInfo.tle1, satInfo.tle2, 0.0)
+            if (prop && prop.valid) {
                 satellitesModel.setProperty(i, "latitude", prop.latitude)
                 satellitesModel.setProperty(i, "longitude", prop.longitude)
                 satellitesModel.setProperty(i, "altitudeKm", prop.altitudeKm)
@@ -451,19 +514,18 @@ ApplicationWindow {
                     satellitesModel.setProperty(i, "velocityKmS", prop.velocityKmS)
                 }
 
-                if (refreshTrack) {
-                    var tracks = propagator.computeOrbitTracks(sat.tle1, sat.tle2, 0.75)
-                    satellitesModel.setProperty(i, "trajectory", tracks.current || [])
-                    satellitesModel.setProperty(i, "prevTrajectory", tracks.previous || [])
-                    satellitesModel.setProperty(i, "nextTrajectory", tracks.next || [])
-                }
+                satInfo.latitude = prop.latitude
+                satInfo.longitude = prop.longitude
+                satInfo.altitudeKm = prop.altitudeKm
 
-                if (window.selectedSatelliteId === sat.satId) {
+                if (window.selectedSatelliteId === satInfo.satId) {
                     window.currentSatAltKm = prop.altitudeKm
                 }
             }
         }
-        mapComponent.requestCanvasRedraw()
+        if (window.currentNavTab === 0) {
+            mapComponent.requestCanvasRedraw()
+        }
     }
 
     // ================= DATA MODELS =================
@@ -549,7 +611,8 @@ ApplicationWindow {
 
     function deleteStation(stationId) {
         for (var i = 0; i < stationsModel.count; i++) {
-            if (stationsModel.get(i).stationId === stationId) {
+            var cachedSt = (window.stationsList && i < window.stationsList.length) ? window.stationsList[i] : null
+            if (cachedSt && cachedSt.stationId === stationId) {
                 stationsModel.remove(i)
                 break
             }
@@ -557,6 +620,7 @@ ApplicationWindow {
         if (window.selectedStationId === stationId) {
             window.selectedStationId = ""
         }
+        window.syncStationsCache()
         window.syncStationsToDisk()
         mapComponent.requestCanvasRedraw()
         if (window.currentNavTab === 1) {
@@ -576,15 +640,17 @@ ApplicationWindow {
 
     function deleteSatellite(satId) {
         for (var i = 0; i < satellitesModel.count; i++) {
-            if (satellitesModel.get(i).satId === satId) {
+            var cachedSat = (window.satellitesList && i < window.satellitesList.length) ? window.satellitesList[i] : null
+            if (cachedSat && cachedSat.satId === satId) {
                 satellitesModel.remove(i)
                 break
             }
         }
+        window.syncSatellitesCache()
         if (window.selectedSatelliteId === satId) {
             window.selectedSatelliteId = ""
-            if (satellitesModel.count > 0) {
-                var first = satellitesModel.get(0)
+            if (window.satellitesList.length > 0) {
+                var first = window.satellitesList[0]
                 window.selectSatellite(first.satId, first.latitude, first.longitude, first.altitudeKm, first.name)
             } else {
                 window.currentSatAltKm = 500.0
@@ -600,7 +666,8 @@ ApplicationWindow {
     function syncStationsToDisk() {
         var list = []
         for (var i = 0; i < stationsModel.count; i++) {
-            var st = stationsModel.get(i)
+            var st = (window.stationsList && i < window.stationsList.length) ? window.stationsList[i] : null
+            if (!st) continue
             list.push({
                 stationId: st.stationId || ("GS-0" + (i + 1)),
                 name: st.name || ("Station " + (i + 1)),
@@ -625,37 +692,89 @@ ApplicationWindow {
             })
         }
         stationManager.saveStationsToDisk(list)
+        window.syncStationsCache()
+    }
+
+    function syncSatellitesCache() {
+        var list = []
+        var map = {}
+        for (var i = 0; i < satellitesModel.count; i++) {
+            var item = satellitesModel.get(i)
+            if (!item) continue
+            var copy = {
+                satId: item.satId || "",
+                name: item.name || "",
+                tle1: item.tle1 || "",
+                tle2: item.tle2 || "",
+                carrierFreqMhz: item.carrierFreqMhz !== undefined ? item.carrierFreqMhz : 5850.0,
+                channelBandwidthKhz: item.channelBandwidthKhz !== undefined ? item.channelBandwidthKhz : 20000.0,
+                modulation: item.modulation || "OQPSK",
+                bitsPerSymbol: item.bitsPerSymbol !== undefined ? item.bitsPerSymbol : 2.0,
+                codeEfficiencyCoef: item.codeEfficiencyCoef !== undefined ? item.codeEfficiencyCoef : 1.24,
+                rolloffAlpha: item.rolloffAlpha !== undefined ? item.rolloffAlpha : 0.35,
+                txPowerDbm: item.txPowerDbm !== undefined ? item.txPowerDbm : 33.0,
+                txAntennaGainDbi: item.txAntennaGainDbi !== undefined ? item.txAntennaGainDbi : 3.0,
+                latitude: item.latitude || 0,
+                longitude: item.longitude || 0,
+                altitudeKm: item.altitudeKm || 500,
+                visibilityRadiusMeters: item.visibilityRadiusMeters || 0,
+                velocityKmS: item.velocityKmS || 0
+            }
+            list.push(copy)
+            map[copy.satId] = copy
+        }
+        window.satellitesList = list
+        window.satellitesMap = map
+    }
+
+    function syncStationsCache() {
+        var list = []
+        var map = {}
+        for (var s = 0; s < stationsModel.count; s++) {
+            var item = stationsModel.get(s)
+            if (!item) continue
+            var copy = {
+                stationId: item.stationId || "",
+                name: item.name || "",
+                latitude: item.latitude !== undefined ? item.latitude : 0.0,
+                longitude: item.longitude !== undefined ? item.longitude : 0.0,
+                altitude: item.altitude !== undefined ? item.altitude : 0.0,
+                minElevation: item.minElevation !== undefined ? item.minElevation : 5.0,
+                operatingBand: item.operatingBand || "C-band",
+                polarization: item.polarization || "RHCP",
+                antennaGain: item.antennaGain !== undefined ? item.antennaGain : 38.5,
+                lnaNf: item.lnaNf !== undefined ? item.lnaNf : 0.7,
+                feederLoss: item.feederLoss !== undefined ? item.feederLoss : 0.3,
+                freqMinMhz: item.freqMinMhz || 0.0,
+                freqMaxMhz: item.freqMaxMhz || 0.0,
+                gOverT: item.gOverT !== undefined ? item.gOverT : 17.5,
+                active: item.active !== false
+            }
+            list.push(copy)
+            map[copy.stationId] = copy
+        }
+        window.stationsList = list
+        window.stationsMap = map
     }
 
     function getSelectedSatellite() {
-        if (!satellitesModel || satellitesModel.count === 0) return null
-        if (window.selectedSatelliteId !== "") {
-            for (var i = 0; i < satellitesModel.count; i++) {
-                if (satellitesModel.get(i).satId === window.selectedSatelliteId) {
-                    return satellitesModel.get(i)
-                }
-            }
+        if (window.selectedSatelliteId && window.satellitesMap && window.satellitesMap[window.selectedSatelliteId]) {
+            return window.satellitesMap[window.selectedSatelliteId]
         }
-        return satellitesModel.get(0)
+        if (window.satellitesList && window.satellitesList.length > 0) {
+            return window.satellitesList[0]
+        }
+        return null
     }
 
     function getActiveStations() {
         var list = []
-        for (var s = 0; s < stationsModel.count; s++) {
-            var item = stationsModel.get(s)
-            if (item.active !== false) {
-                list.push({
-                    stationId: item.stationId,
-                    name: item.name,
-                    latitude: item.latitude,
-                    longitude: item.longitude,
-                    altitude: item.altitude || 0,
-                    minElevation: item.minElevation !== undefined ? item.minElevation : 5.0,
-                    gOverT: item.gOverT !== undefined ? item.gOverT : 17.5,
-                    feederLoss: item.feederLoss !== undefined ? item.feederLoss : 0.3,
-                    freqMinMhz: item.freqMinMhz || 0.0,
-                    freqMaxMhz: item.freqMaxMhz || 0.0
-                })
+        if (window.stationsList) {
+            for (var s = 0; s < window.stationsList.length; s++) {
+                var item = window.stationsList[s]
+                if (item.active !== false) {
+                    list.push(item)
+                }
             }
         }
         return list
@@ -702,16 +821,37 @@ ApplicationWindow {
         }
         var sat = getSelectedSatellite()
         if (!sat || !sat.tle1 || !sat.tle2) return
-        var stationsToCalc = getActiveStations()
+        var stationsToCalc = []
+        if (passEvent && passEvent.stationPasses && passEvent.stationPasses.length > 0) {
+            var allActive = getActiveStations()
+            for (var sp = 0; sp < passEvent.stationPasses.length; sp++) {
+                var pId = passEvent.stationPasses[sp].stationId
+                var pName = passEvent.stationPasses[sp].stationName
+                for (var st = 0; st < allActive.length; st++) {
+                    if ((pId && allActive[st].stationId === pId) || (pName && allActive[st].name === pName)) {
+                        stationsToCalc.push(allActive[st])
+                        break
+                    }
+                }
+            }
+        }
+        if (stationsToCalc.length === 0) {
+            stationsToCalc = getActiveStations()
+        }
         if (stationsToCalc.length === 0) return
 
         var startIso = passEvent.combinedAosUtc
         var endIso = passEvent.combinedLosUtc
 
+        var txPower = sat.txPowerDbm !== undefined ? Number(sat.txPowerDbm) : 33.0
+        var txGain = sat.txAntennaGainDbi !== undefined ? Number(sat.txAntennaGainDbi) : 3.0
+        var freqMhz = sat.carrierFreqMhz !== undefined ? Number(sat.carrierFreqMhz) : 5850.0
+        var bwKhz = sat.channelBandwidthKhz !== undefined ? Number(sat.channelBandwidthKhz) : 20000.0
+
         var res = propagator.calculatePassSnrProfile(
             sat.tle1, sat.tle2, stationsToCalc,
             startIso, endIso,
-            1.0, 33.0, 3.0, 5840.0, 10000.0
+            1.0, txPower, txGain, freqMhz, bwKhz
         )
         planningBaseSnrData = res
         planningSnrData = res
@@ -1379,7 +1519,9 @@ ApplicationWindow {
 
             onTabSelected: (idx) => {
                 window.currentNavTab = idx
-                if (idx === 1 && (!window.planningPassResult || window.planningPassResult.passes.length === 0)) {
+                if (idx === 0) {
+                    window.updateLiveSatellitePositions()
+                } else if (idx === 1 && (!window.planningPassResult || window.planningPassResult.passes.length === 0)) {
                     window.calculateFuturePasses()
                 }
             }
@@ -1433,11 +1575,13 @@ ApplicationWindow {
                 onStationSelected: (stId, lat, lon) => window.selectStation(stId, lat, lon)
                 onStationActiveToggled: (stId, active) => {
                     for (var i = 0; i < stationsModel.count; i++) {
-                        if (stationsModel.get(i).stationId === stId) {
+                        var cachedSt = (window.stationsList && i < window.stationsList.length) ? window.stationsList[i] : null
+                        if (cachedSt && cachedSt.stationId === stId) {
                             stationsModel.setProperty(i, "active", active)
                             break
                         }
                     }
+                    window.syncStationsCache()
                     window.syncStationsToDisk()
                     mapComponent.requestCanvasRedraw()
                     if (window.currentNavTab === 1) {
@@ -1451,6 +1595,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 visible: window.currentNavTab === 1
                 satellitesModel: satellitesModel
+                satellitesList: window.satellitesList
                 stationsModel: stationsModel
                 selectedSatelliteId: window.selectedSatelliteId
                 passResult: window.planningPassResult
@@ -1530,7 +1675,12 @@ ApplicationWindow {
                 visible: window.currentNavTab === 0
                 lightMode: window.lightMode
                 stationsModel: stationsModel
+                stationsList: window.stationsList
+                stationsMap: window.stationsMap
                 satellitesModel: satellitesModel
+                satellitesList: window.satellitesList
+                satellitesMap: window.satellitesMap
+                satelliteTracksMap: window.satelliteTracksMap
                 selectedStationId: window.selectedStationId
                 selectedSatelliteId: window.selectedSatelliteId
                 targetSatelliteAltitudeKm: window.currentSatAltKm
@@ -1561,6 +1711,14 @@ ApplicationWindow {
                 visible: window.currentNavTab === 1
                 sessionEvent: window.currentPlanningSession
                 snrProfileData: window.planningSnrData
+                targetSatelliteData: {
+                    var _v = window.satelliteConfigVersion
+                    var _sid = window.selectedSatelliteId
+                    return window.getSelectedSatellite()
+                }
+                stationsModel: stationsModel
+                stationsList: window.stationsList
+                stationsMap: window.stationsMap
                 lightMode: window.lightMode
 
                 addedModulesModel: addedPythonModulesModel
@@ -1574,6 +1732,29 @@ ApplicationWindow {
                 recentExcelFilesList: window.recentExcelFilesList
                 selectedCorrelationModulePath: window.selectedCorrelationModulePath
                 selectedExcelFilePath: window.selectedExcelFilePath
+
+                onEditTargetSatelliteConfigRequested: {
+                    var sat = window.getSelectedSatellite()
+                    if (sat) {
+                        satelliteDialog.openForEdit(sat)
+                    } else {
+                        satelliteDialog.openForNew()
+                    }
+                }
+
+                onEditGroundStationConfigRequested: (stationId) => {
+                    if (window.stationsMap && window.stationsMap[stationId]) {
+                        window.startEditStation(window.stationsMap[stationId])
+                        return
+                    }
+                    for (var i = 0; i < window.stationsList.length; i++) {
+                        var st = window.stationsList[i]
+                        if (st.stationId === stationId || st.name === stationId) {
+                            window.startEditStation(st)
+                            return
+                        }
+                    }
+                }
 
                 onBrowseStationModuleRequested: (stationId) => {
                     var selectedPath = pythonModuleRunner.selectPythonModuleDialog()
@@ -1847,8 +2028,30 @@ ApplicationWindow {
         var saved = stationManager.loadStationsFromDisk()
         if (saved && saved.length > 0) {
             for (var s = 0; s < saved.length; s++) {
-                if (saved[s].active === undefined) saved[s].active = true
-                stationsModel.append(saved[s])
+                var cleanSt = {
+                    stationId: String(saved[s].stationId || ("GS-0" + (s + 1))),
+                    name: String(saved[s].name || ("Station " + (s + 1))),
+                    latitude: Number(saved[s].latitude) || 0.0,
+                    longitude: Number(saved[s].longitude) || 0.0,
+                    altitude: Number(saved[s].altitude) || 0.0,
+                    altitudeSpecified: saved[s].altitudeSpecified !== false,
+                    mobility: String(saved[s].mobility || "Stationary"),
+                    minElevation: Number(saved[s].minElevation) || 5.0,
+                    operatingBand: String(saved[s].operatingBand || "C-band"),
+                    polarization: String(saved[s].polarization || "RHCP"),
+                    antennaGain: Number(saved[s].antennaGain) || 38.5,
+                    lnaNf: Number(saved[s].lnaNf) || 0.70,
+                    feederLoss: Number(saved[s].feederLoss) || 0.30,
+                    freqMinMhz: Number(saved[s].freqMinMhz) || 4000.0,
+                    freqMaxMhz: Number(saved[s].freqMaxMhz) || 8000.0,
+                    maxChannelWidthMhz: Number(saved[s].maxChannelWidthMhz) || 4000.0,
+                    totalNoiseFigureDb: Number(saved[s].totalNoiseFigureDb) || 1.0,
+                    systemNoiseTempK: Number(saved[s].systemNoiseTempK) || 125.1,
+                    gOverT: Number(saved[s].gOverT) || 17.53,
+                    stationJson: String(saved[s].stationJson || ""),
+                    active: saved[s].active !== false
+                }
+                stationsModel.append(cleanSt)
             }
         } else {
             // Sample Ground Stations with rich RF configurations
@@ -1927,25 +2130,32 @@ ApplicationWindow {
             window.syncStationsToDisk()
         }
 
+        var initialTracksMap = {}
         // Initial Sample Satellite (ISS) - Live NORAD TLE Elements
         var issL1 = "1 25544U 98067A   26290.17683437  .00008767  00000+0  16757-3 0  9994"
         var issL2 = "2 25544  51.6327  56.4129 0006776 273.6806  86.3408 15.48906925590665"
         var prop = propagator.propagateTle(issL1, issL2, 0.0)
         if (prop.valid) {
             var tracks = propagator.computeOrbitTracks(issL1, issL2, 0.75)
+            initialTracksMap["SAT-01"] = tracks
             satellitesModel.append({
                 satId: "SAT-01",
                 name: "ISS (ZARYA)",
                 tle1: issL1,
                 tle2: issL2,
+                carrierFreqMhz: 5850.0,
+                channelBandwidthKhz: 20000.0,
+                modulation: "OQPSK",
+                bitsPerSymbol: 2.0,
+                codeEfficiencyCoef: 1.24,
+                rolloffAlpha: 0.35,
+                txPowerDbm: 33.0,
+                txAntennaGainDbi: 3.0,
                 latitude: prop.latitude,
                 longitude: prop.longitude,
                 altitudeKm: prop.altitudeKm,
                 visibilityRadiusMeters: prop.visibilityRadiusMeters,
-                velocityKmS: prop.velocityKmS || 0,
-                trajectory: tracks.current || [],
-                prevTrajectory: tracks.previous || [],
-                nextTrajectory: tracks.next || []
+                velocityKmS: prop.velocityKmS || 0
             })
             window.currentSatAltKm = prop.altitudeKm
             window.currentSatName = "ISS (ZARYA)"
@@ -1959,21 +2169,30 @@ ApplicationWindow {
         var propPoly = propagator.propagateTle(polyL1, polyL2, 0.0)
         if (propPoly.valid) {
             var tracksPoly = propagator.computeOrbitTracks(polyL1, polyL2, 0.75)
+            initialTracksMap["SAT-02"] = tracksPoly
             satellitesModel.append({
                 satId: "SAT-02",
                 name: "POLYITAN-3-PUT (LEO)",
                 tle1: polyL1,
                 tle2: polyL2,
+                carrierFreqMhz: 5850.0,
+                channelBandwidthKhz: 10000.0,
+                modulation: "QPSK",
+                bitsPerSymbol: 2.0,
+                codeEfficiencyCoef: 1.24,
+                rolloffAlpha: 0.35,
+                txPowerDbm: 33.0,
+                txAntennaGainDbi: 3.0,
                 latitude: propPoly.latitude,
                 longitude: propPoly.longitude,
                 altitudeKm: propPoly.altitudeKm,
                 visibilityRadiusMeters: propPoly.visibilityRadiusMeters,
-                velocityKmS: propPoly.velocityKmS || 0,
-                trajectory: tracksPoly.current || [],
-                prevTrajectory: tracksPoly.previous || [],
-                nextTrajectory: tracksPoly.next || []
+                velocityKmS: propPoly.velocityKmS || 0
             })
         }
+        window.satelliteTracksMap = initialTracksMap
+        window.syncStationsCache()
+        window.syncSatellitesCache()
 
         // Set initial historical observation
         if (historyModel.count > 0) {

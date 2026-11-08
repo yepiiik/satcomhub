@@ -34,8 +34,32 @@ Rectangle {
         "#20c997"  // Teal
     ]
 
-    function getStationColor(index) {
-        return stationColors[index % stationColors.length]
+    function getStationColor(identifier, fallbackIndex) {
+        if (typeof identifier === "number") {
+            return stationColors[identifier % stationColors.length]
+        }
+        var idStr = String(identifier || "")
+        if (snrModalRoot.snrProfileData && snrModalRoot.snrProfileData.stations) {
+            for (var i = 0; i < snrModalRoot.snrProfileData.stations.length; i++) {
+                var st = snrModalRoot.snrProfileData.stations[i]
+                if (st && (st.stationId === idStr || st.stationName === idStr)) {
+                    return stationColors[i % stationColors.length]
+                }
+            }
+        }
+        if (typeof fallbackIndex === "number") {
+            return stationColors[fallbackIndex % stationColors.length]
+        }
+        return stationColors[0]
+    }
+
+    function getStationFillColor(hexCol, alphaHex) {
+        if (!hexCol) return "#00000000"
+        var raw = hexCol.toString().replace("#", "")
+        if (raw.length === 8) {
+            raw = raw.substring(2)
+        }
+        return "#" + (alphaHex !== undefined ? alphaHex : "33") + raw
     }
 
     Rectangle {
@@ -582,8 +606,8 @@ Rectangle {
                                 ctx.closePath()
 
                                 var grad = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + plotH)
-                                grad.addColorStop(0, col + "33") // 20% alpha
-                                grad.addColorStop(1, col + "00") // 0% alpha
+                                grad.addColorStop(0, snrModalRoot.getStationFillColor(col, "33")) // 20% alpha
+                                grad.addColorStop(1, snrModalRoot.getStationFillColor(col, "00")) // 0% alpha
                                 ctx.fillStyle = grad
                                 ctx.fill()
                             }

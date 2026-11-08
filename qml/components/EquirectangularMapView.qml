@@ -8,7 +8,13 @@ Item {
     clip: true
 
     property var stationsModel: null
+    property var stationsList: []
+    property var stationsMap: ({})
     property var satellitesModel: null
+    property var satellitesList: []
+    property var satellitesMap: ({})
+    property var satelliteTracksMap: ({})
+    onSatelliteTracksMapChanged: requestCanvasRedraw()
     property string selectedStationId: ""
     property string selectedSatelliteId: ""
     property real targetSatelliteAltitudeKm: 500.0
@@ -185,9 +191,11 @@ Item {
                         ctx.clearRect(0, 0, width, height)
 
                         // 1. Station Footprints
-                        if (equirectangularView.stationsModel) {
-                            for (var i = 0; i < equirectangularView.stationsModel.count; i++) {
-                                var item = equirectangularView.stationsModel.get(i)
+                        var stList = (equirectangularView.stationsList && equirectangularView.stationsList.length > 0)
+                                     ? equirectangularView.stationsList : null
+                        if (stList) {
+                            for (var i = 0; i < stList.length; i++) {
+                                var item = stList[i]
                                 var rad = MapUtils.calculateStationSatVisibilityRadius(
                                     equirectangularView.targetSatelliteAltitudeKm,
                                     item.minElevation !== undefined ? item.minElevation : equirectangularView.minElevationDeg,
@@ -209,9 +217,11 @@ Item {
                         }
 
                         // 2. Satellite Trajectories & Footprints
-                        if (equirectangularView.satellitesModel) {
-                            for (var s = 0; s < equirectangularView.satellitesModel.count; s++) {
-                                var sat = equirectangularView.satellitesModel.get(s)
+                        var satList = (equirectangularView.satellitesList && equirectangularView.satellitesList.length > 0)
+                                      ? equirectangularView.satellitesList : null
+                        if (satList) {
+                            for (var s = 0; s < satList.length; s++) {
+                                var sat = satList[s]
                                 var isSatSel = (equirectangularView.selectedSatelliteId === sat.satId)
 
                                 function drawCanvasTrack(trackPts, strokeColor, lineWidth, dashArray) {
@@ -247,10 +257,15 @@ Item {
                                     ctx.restore()
                                 }
 
+                                var satTracks = (equirectangularView.satelliteTracksMap && sat.satId && equirectangularView.satelliteTracksMap[sat.satId]) ? equirectangularView.satelliteTracksMap[sat.satId] : null
+                                var prevTraj = satTracks ? satTracks.previous : sat.prevTrajectory
+                                var nextTraj = satTracks ? satTracks.next : sat.nextTrajectory
+                                var currTraj = satTracks ? satTracks.current : sat.trajectory
+
                                 // Previous Orbit Trajectory (50% opacity, dashed)
-                                if (MapUtils.getTrajectoryCount(sat.prevTrajectory) > 1) {
+                                if (MapUtils.getTrajectoryCount(prevTraj) > 1) {
                                     drawCanvasTrack(
-                                        sat.prevTrajectory,
+                                        prevTraj,
                                         isSatSel ? "rgba(255, 212, 59, 0.50)" : "rgba(250, 176, 5, 0.50)",
                                         isSatSel ? 2.0 : 1.2,
                                         [6, 5]
@@ -258,9 +273,9 @@ Item {
                                 }
 
                                 // Next Orbit Trajectory (50% opacity, dashed)
-                                if (MapUtils.getTrajectoryCount(sat.nextTrajectory) > 1) {
+                                if (MapUtils.getTrajectoryCount(nextTraj) > 1) {
                                     drawCanvasTrack(
-                                        sat.nextTrajectory,
+                                        nextTraj,
                                         isSatSel ? "rgba(255, 212, 59, 0.50)" : "rgba(250, 176, 5, 0.50)",
                                         isSatSel ? 2.0 : 1.2,
                                         [6, 5]
@@ -268,9 +283,9 @@ Item {
                                 }
 
                                 // Current Orbit Trajectory (100% opacity, dashed)
-                                if (MapUtils.getTrajectoryCount(sat.trajectory) > 1) {
+                                if (MapUtils.getTrajectoryCount(currTraj) > 1) {
                                     drawCanvasTrack(
-                                        sat.trajectory,
+                                        currTraj,
                                         isSatSel ? "#ffd43b" : "#fab005",
                                         isSatSel ? 2.5 : 1.5,
                                         [8, 6]
@@ -313,15 +328,18 @@ Item {
 
                 // Station Pins Repeater
                 Repeater {
-                    model: equirectangularView.stationsModel
+                    model: (equirectangularView.stationsList && equirectangularView.stationsList.length > 0)
+                           ? equirectangularView.stationsList
+                           : equirectangularView.stationsModel
                     delegate: Item {
-                        x: MapUtils.lonToX(model.longitude, equiMapImage.width) - 18
-                        y: MapUtils.latToY(model.latitude, equiMapImage.height) - 40
+                        property var currentSt: typeof modelData !== "undefined" ? modelData : model
+                        x: MapUtils.lonToX(currentSt.longitude, equiMapImage.width) - 18
+                        y: MapUtils.latToY(currentSt.latitude, equiMapImage.height) - 40
                         width: 36
                         height: 44
-                        z: (equirectangularView.selectedStationId === model.stationId) ? 20 : 10
+                        z: (equirectangularView.selectedStationId === currentSt.stationId) ? 20 : 10
 
-                        property bool isActive: model.active !== false
+                        property bool isActive: currentSt.active !== false
                         opacity: isActive ? 1.0 : 0.65
 
                         Shape {
@@ -332,9 +350,9 @@ Item {
                             ShapePath {
                                 strokeWidth: 2
                                 strokeColor: "#ffffff"
-                                fillColor: (equirectangularView.selectedStationId === model.stationId)
+                                fillColor: (equirectangularView.selectedStationId === currentSt.stationId)
                                            ? "#fa5252"
-                                           : (model.active !== false ? "#228be6" : "#868e96")
+                                           : (currentSt.active !== false ? "#228be6" : "#868e96")
                                 joinStyle: ShapePath.RoundJoin
 
                                 startX: 18; startY: 40
@@ -354,7 +372,7 @@ Item {
                             anchors.bottom: parent.top
                             anchors.bottomMargin: 4
                             anchors.horizontalCenter: parent.horizontalCenter
-                            visible: equirectangularView.selectedStationId === model.stationId
+                            visible: equirectangularView.selectedStationId === currentSt.stationId
                             implicitWidth: pinBadgeText.implicitWidth + 12
                             implicitHeight: 22
                             radius: 4
@@ -365,7 +383,7 @@ Item {
                             Text {
                                 id: pinBadgeText
                                 anchors.centerIn: parent
-                                text: model.name
+                                text: currentSt.name
                                 color: "#ffffff"
                                 font.pixelSize: 11
                                 font.bold: true
@@ -375,7 +393,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: equirectangularView.markerSelected(model.stationId, model.name)
+                            onClicked: equirectangularView.markerSelected(currentSt.stationId, currentSt.name)
                         }
                     }
                 }

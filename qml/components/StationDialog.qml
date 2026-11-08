@@ -11,10 +11,15 @@ Popup {
 
     // External references
     property var stationManager: null
+    property var stationFactorModulesMap: ({})
+    property var recentModulesList: []
 
     // Signals
     signal stationCommitted(var stationData, bool isEdit)
     signal pickOnMapRequested()
+    signal browseStationModuleRequested(string stationId)
+    signal addRecentStationModuleRequested(string stationId, string modulePath)
+    signal removeStationModuleRequested(string stationId, int moduleIndex)
 
     modal: true
     focus: true
@@ -1065,6 +1070,175 @@ Popup {
                                     font.bold: true
                                     font.family: "monospace"
                                     color: "#ffd43b"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- STATION LOSS FACTOR MODULES ---
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: stDialogModsCol.implicitHeight + 20
+                    radius: 8
+                    color: root.lightMode ? "#f8f9fa" : "#141517"
+                    border.color: root.lightMode ? "#dee2e6" : "#2c2e33"
+                    border.width: 1
+                    visible: root.editingStationId !== ""
+
+                    readonly property var currentStationMods: (root.stationFactorModulesMap && root.stationFactorModulesMap[root.editingStationId])
+                                                              ? root.stationFactorModulesMap[root.editingStationId]
+                                                              : []
+
+                    ColumnLayout {
+                        id: stDialogModsCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 10
+                        spacing: 8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Label {
+                                text: qsTr("Attached Loss Factor Modules")
+                                font.bold: true
+                                font.pixelSize: 12
+                                color: root.lightMode ? "#212529" : "#f1f3f5"
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            ComboBox {
+                                id: dlgRecentModCombo
+                                Layout.preferredWidth: 165
+                                height: 24
+                                model: root.recentModulesList ? root.recentModulesList : []
+                                textRole: "name"
+                                font.pixelSize: 10
+                                enabled: count > 0
+                                displayText: currentIndex >= 0 && count > 0
+                                             ? model[currentIndex].name
+                                             : qsTr("Recent module...")
+                            }
+
+                            Button {
+                                id: dlgAddRecentModBtn
+                                height: 24
+                                enabled: dlgRecentModCombo.count > 0 && dlgRecentModCombo.currentIndex >= 0
+                                background: Rectangle {
+                                    radius: 4
+                                    color: dlgAddRecentModBtn.enabled ? root.accentColor : (root.lightMode ? "#dee2e6" : "#252b3b")
+                                }
+                                contentItem: Text {
+                                    text: qsTr("+ Add")
+                                    font.bold: true
+                                    font.pixelSize: 10
+                                    color: "#ffffff"
+                                    leftPadding: 8; rightPadding: 8
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                onClicked: {
+                                    var item = root.recentModulesList[dlgRecentModCombo.currentIndex]
+                                    if (item && item.path) {
+                                        root.addRecentStationModuleRequested(root.editingStationId, item.path)
+                                    }
+                                }
+                            }
+
+                            Button {
+                                id: dlgBrowseModBtn
+                                height: 24
+                                background: Rectangle {
+                                    radius: 4
+                                    color: dlgBrowseModBtn.hovered ? (root.lightMode ? "#e9ecef" : "#2c2e33") : (root.lightMode ? "#ffffff" : "#1a1b1e")
+                                    border.color: root.accentColor
+                                }
+                                contentItem: Text {
+                                    text: qsTr("📂 Browse .py")
+                                    font.bold: true
+                                    font.pixelSize: 10
+                                    color: root.accentColor
+                                    leftPadding: 8; rightPadding: 8
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                onClicked: root.browseStationModuleRequested(root.editingStationId)
+                            }
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            // Default FSPL Pill
+                            Rectangle {
+                                height: 26
+                                width: fsplDlgRow.implicitWidth + 14
+                                radius: 6
+                                color: root.lightMode ? "#e7f5ff" : "#112238"
+                                border.color: "#339af0"
+                                border.width: 1
+
+                                RowLayout {
+                                    id: fsplDlgRow
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    Text {
+                                        text: "🔒 FSPL (Free Space Path Loss)"
+                                        font.bold: true
+                                        font.pixelSize: 10
+                                        color: root.lightMode ? "#1864ab" : "#74c0fc"
+                                    }
+                                }
+                            }
+
+                            // Station Python Modules
+                            Repeater {
+                                model: parent.parent.parent.currentStationMods
+
+                                Rectangle {
+                                    height: 26
+                                    width: modDlgChipRow.implicitWidth + 14
+                                    radius: 6
+                                    color: root.lightMode ? "#ffffff" : "#1e2230"
+                                    border.color: root.lightMode ? "#ced4da" : "#373a40"
+                                    border.width: 1
+
+                                    RowLayout {
+                                        id: modDlgChipRow
+                                        anchors.centerIn: parent
+                                        spacing: 6
+
+                                        Text {
+                                            text: modelData.name
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            color: root.lightMode ? "#212529" : "#e9ecef"
+                                        }
+
+                                        Button {
+                                            width: 16
+                                            height: 16
+                                            padding: 0
+                                            background: Rectangle {
+                                                radius: 3
+                                                color: parent.hovered ? "#fa5252" : "transparent"
+                                            }
+                                            contentItem: Text {
+                                                text: "✕"
+                                                font.bold: true
+                                                font.pixelSize: 9
+                                                color: parent.hovered ? "#ffffff" : (root.lightMode ? "#868e96" : "#909296")
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                            onClicked: root.removeStationModuleRequested(root.editingStationId, index)
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -7,11 +7,24 @@ Rectangle {
 
     property var sessionEvent: null
     property var snrProfileData: null
+    property var targetSatelliteData: null
+    property var stationsModel: null
+    property var stationsList: []
+    property var stationsMap: ({})
     property bool lightMode: false
     property string activeMetric: "snr" // "snr", "fspl", "totalloss", "elevation"
-    property bool showMrcEnvelope: true
-    property bool showShannonLimits: true
+    property bool showMrcEnvelope: false
+    property bool showShannonLimits: false
     property int hoveredSampleIndex: -1
+
+    onSnrProfileDataChanged: embeddedPlotCanvas.requestPaint()
+    onLightModeChanged: embeddedPlotCanvas.requestPaint()
+    onActiveMetricChanged: embeddedPlotCanvas.requestPaint()
+    onVisibleChanged: {
+        if (visible) {
+            embeddedPlotCanvas.requestPaint()
+        }
+    }
 
     // Python Factor Calculation Modules state & models (per-station map: stationId -> array of module objects)
     property var addedModulesModel: null
@@ -28,13 +41,17 @@ Rectangle {
     property string selectedCorrelationModulePath: ""
     property string selectedExcelFilePath: ""
 
-    // Session Plan & Transmission AMC parameters
-    property string selectedModulation: "QPSK"
-    property real bitsPerSymbol: 2.0
-    property real rolloffAlpha: 0.20
-    property real codeEfficiencyCoef: 1.00
-    property real carrierFreqMhz: (snrProfileData && snrProfileData.carrierFreqMhz) ? snrProfileData.carrierFreqMhz : 5840.0
-    property real channelBandwidthKhz: (snrProfileData && snrProfileData.channelBandwidthKhz) ? snrProfileData.channelBandwidthKhz : 10000.0
+    // Session Plan & Transmission AMC parameters (synced with Target Satellite config)
+    property string selectedModulation: (targetSatelliteData && targetSatelliteData.modulation) ? targetSatelliteData.modulation : "OQPSK"
+    property real bitsPerSymbol: deriveBitsPerSymbol(selectedModulation)
+    property real rolloffAlpha: (targetSatelliteData && targetSatelliteData.rolloffAlpha !== undefined) ? Number(targetSatelliteData.rolloffAlpha) : 0.35
+    property real codeEfficiencyCoef: (targetSatelliteData && targetSatelliteData.codeEfficiencyCoef !== undefined) ? Number(targetSatelliteData.codeEfficiencyCoef) : 1.24
+    property real carrierFreqMhz: (targetSatelliteData && targetSatelliteData.carrierFreqMhz !== undefined)
+                                  ? Number(targetSatelliteData.carrierFreqMhz)
+                                  : ((snrProfileData && snrProfileData.carrierFreqMhz) ? snrProfileData.carrierFreqMhz : 5850.0)
+    property real channelBandwidthKhz: (targetSatelliteData && targetSatelliteData.channelBandwidthKhz !== undefined)
+                                       ? Number(targetSatelliteData.channelBandwidthKhz)
+                                       : ((snrProfileData && snrProfileData.channelBandwidthKhz) ? snrProfileData.channelBandwidthKhz : 20000.0)
 
     readonly property var modulationPresets: [
         { name: "BPSK", bits: 1 },
@@ -72,7 +89,59 @@ Rectangle {
         return 2.0
     }
 
-    // Exact formula from user screenshot:
+    function parseTleEpochDisplay(tle1) {
+        if (!tle1 || tle1.length < 32) return "07.11.2026 20:32:11"
+        var raw = tle1.substring(18, 32).trim()
+        var yr2 = parseInt(raw.substring(0, 2), 10)
+        var doyFloat = parseFloat(raw.substring(2))
+        if (isNaN(yr2) || isNaN(doyFloat)) return raw
+        var year = yr2 < 57 ? (2000 + yr2) : (1900 + yr2)
+        var dayInt = Math.floor(doyFloat)
+        var fracDay = doyFloat - dayInt
+        var totalSec = Math.round(fracDay * 86400)
+        var hrs = Math.floor(totalSec / 3600)
+        var mins = Math.floor((totalSec % 3600) / 60)
+        var secs = totalSec % 60
+        var dt = new Date(Date.UTC(year, 0, dayInt, hrs, mins, secs))
+        function pad2(n) { return n < 10 ? ("0" + n) : String(n) }
+        return pad2(dt.getUTCDate()) + "." + pad2(dt.getUTCMonth() + 1) + "." + dt.getUTCFullYear() +
+               " " + pad2(dt.getUTCHours()) + ":" + pad2(dt.getUTCMinutes()) + ":" + pad2(dt.getUTCSeconds())
+    }
+
+    function formatSessionDateDisplay(isoStr) {
+        if (!isoStr || isoStr.length < 10) return ""
+        var datePart = isoStr.substring(0, 10)
+        var parts = datePart.split("-")
+        if (parts.length === 3) {
+            return parts[2] + "." + parts[1] + "." + parts[0]
+        }
+        return datePart
+    }
+
+    function formatModuleDisplayName(rawName, factorName) {
+        if (factorName && factorName.length > 0) {
+            return factorName.replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase() })
+        }
+        if (!rawName) return "Factor Module"
+        var base = rawName.replace(/\.py$/i, "").replace(/_/g, " ")
+        return base.replace(/\b\w/g, function(c) { return c.toUpperCase() })
+    }
+
+    function findFullStationConfig(stId, stName) {
+        if (stId && detailsRoot.stationsMap && detailsRoot.stationsMap[stId]) {
+            return detailsRoot.stationsMap[stId]
+        }
+        if (detailsRoot.stationsList && detailsRoot.stationsList.length > 0) {
+            for (var i = 0; i < detailsRoot.stationsList.length; i++) {
+                var item = detailsRoot.stationsList[i]
+                if ((stId && item.stationId === stId) || (stName && item.name === stName)) {
+                    return item
+                }
+            }
+        }
+        return null
+    }
+
     // r_max = [1 / (bits_per_symbol * (1 + alpha))] * log2(1 + (10^(SNR_dB / 10) / Code_efficiency_coef))
     function calculateRMaxFormula(snrDb, m, a, gamma) {
         if (m <= 0 || (1 + a) <= 0 || gamma <= 0) return 0.0
@@ -97,22 +166,25 @@ Rectangle {
 
     readonly property real derivedPeakRMax: calculateRMaxFormula(currentPeakSnr, bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
 
-    readonly property real derivedMeanRMax: {
+    readonly property real derivedSymbolRateKbaud: (1.0 + rolloffAlpha) > 0 ? (channelBandwidthKhz / (1.0 + rolloffAlpha)) : channelBandwidthKhz
+
+    // Estimated Session Data Volume (MB) integrated across visible samples
+    readonly property real estimatedSessionVolumeMb: {
         if (!snrProfileData || !snrProfileData.combinedSelectionSnrDb) return 0.0
-        var sum = 0.0, cnt = 0
         var arr = snrProfileData.combinedSelectionSnrDb
+        var rateHz = snrProfileData.sampleRateHz > 0 ? snrProfileData.sampleRateHz : 1.0
+        var dtSec = 1.0 / rateHz
+        var symRateBaud = derivedSymbolRateKbaud * 1000.0
+        var totalBits = 0.0
         for (var i = 0; i < arr.length; i++) {
             if (arr[i] > -20.0) {
-                sum += calculateRMaxFormula(arr[i], bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
-                cnt++
+                var rMaxStep = calculateRMaxFormula(arr[i], bitsPerSymbol, rolloffAlpha, codeEfficiencyCoef)
+                var bitrateBps = symRateBaud * bitsPerSymbol * rMaxStep
+                totalBits += bitrateBps * dtSec
             }
         }
-        return cnt > 0 ? (sum / cnt) : 0.0
+        return totalBits / (8.0 * 1e6)
     }
-
-    readonly property real derivedSymbolRateKbaud: (1.0 + rolloffAlpha) > 0 ? (channelBandwidthKhz / (1.0 + rolloffAlpha)) : channelBandwidthKhz
-    readonly property real derivedSpectralEfficiency: (bitsPerSymbol * derivedPeakRMax) / (1.0 + rolloffAlpha)
-    readonly property real derivedPeakBitrateMbps: (derivedSymbolRateKbaud * bitsPerSymbol * derivedPeakRMax) / 1000.0
 
     function getTransmissionParams() {
         return {
@@ -127,6 +199,9 @@ Rectangle {
 
     signal previewSessionPlanYamlRequested(var transmissionParams)
     signal exportSessionPlanYamlRequested(var transmissionParams)
+
+    signal editTargetSatelliteConfigRequested()
+    signal editGroundStationConfigRequested(string stationId)
 
     signal browseStationModuleRequested(string stationId)
     signal addRecentStationModuleRequested(string stationId, string modulePath)
@@ -163,8 +238,40 @@ Rectangle {
         "#20c997"  // Teal
     ]
 
-    function getStationColor(index) {
-        return stationColors[index % stationColors.length]
+    function getStationColor(identifier, fallbackIndex) {
+        if (typeof identifier === "number") {
+            return stationColors[identifier % stationColors.length]
+        }
+        var idStr = String(identifier || "")
+        if (detailsRoot.snrProfileData && detailsRoot.snrProfileData.stations) {
+            for (var i = 0; i < detailsRoot.snrProfileData.stations.length; i++) {
+                var st = detailsRoot.snrProfileData.stations[i]
+                if (st && (st.stationId === idStr || st.stationName === idStr)) {
+                    return stationColors[i % stationColors.length]
+                }
+            }
+        }
+        if (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses) {
+            for (var j = 0; j < detailsRoot.sessionEvent.stationPasses.length; j++) {
+                var p = detailsRoot.sessionEvent.stationPasses[j]
+                if (p && (p.stationId === idStr || p.stationName === idStr)) {
+                    return stationColors[j % stationColors.length]
+                }
+            }
+        }
+        if (typeof fallbackIndex === "number") {
+            return stationColors[fallbackIndex % stationColors.length]
+        }
+        return stationColors[0]
+    }
+
+    function getStationFillColor(hexCol, alphaHex) {
+        if (!hexCol) return "#00000000"
+        var raw = hexCol.toString().replace("#", "")
+        if (raw.length === 8) {
+            raw = raw.substring(2)
+        }
+        return "#" + (alphaHex !== undefined ? alphaHex : "26") + raw
     }
 
     // ================= EMPTY STATE (when no session selected) =================
@@ -214,7 +321,6 @@ Rectangle {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
-        // Allow both horizontal and vertical scrolling
         contentWidth: Math.max(width, 940, mainContentCol.implicitWidth + 36)
         contentHeight: mainContentCol.implicitHeight + 36
 
@@ -228,1259 +334,193 @@ Rectangle {
         ColumnLayout {
             id: mainContentCol
             x: 18
-            y: 18
+            y: 16
             width: mainFlickable.contentWidth - 36
-            spacing: 14
+            spacing: 12
 
-            // --- TOP SESSION HEADER BANNER ---
+            // =========================================================================
+            // 1. MINIMALISTIC SESSION TITLE BAR (+ Estimated Session Data Volume)
+            // =========================================================================
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: headerCol.implicitHeight + 24
-                Layout.preferredHeight: implicitHeight
-                radius: 10
+                implicitHeight: 46
+                Layout.preferredHeight: 46
+                radius: 8
                 color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
+                border.color: detailsRoot.lightMode ? "#dee2e6" : "#222736"
                 border.width: 1
 
-                ColumnLayout {
-                    id: headerCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 12
-                    spacing: 8
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 14
+                    spacing: 12
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
+                    // Session Date (e.g. 07.11.2026)
+                    Label {
+                        text: detailsRoot.sessionEvent ? detailsRoot.formatSessionDateDisplay(detailsRoot.sessionEvent.combinedAosUtc) : ""
+                        font.bold: true
+                        font.pixelSize: 14
+                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                    }
 
-                        Rectangle {
-                            height: 24
-                            width: passNumText.implicitWidth + 14
-                            radius: 6
-                            color: "#339af0"
-                            Text {
-                                id: passNumText
-                                anchors.centerIn: parent
-                                text: detailsRoot.sessionEvent ? ("Pass #" + detailsRoot.sessionEvent.passIndex) : ""
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#ffffff"
-                            }
+                    Rectangle {
+                        width: 1
+                        height: 16
+                        color: detailsRoot.lightMode ? "#dee2e6" : "#2d3345"
+                    }
+
+                    // Minimalistic Pass Window & Duration
+                    Label {
+                        text: {
+                            if (!detailsRoot.sessionEvent) return ""
+                            var aos = (detailsRoot.sessionEvent.combinedAosUtc || "").split(" ").pop()
+                            var los = (detailsRoot.sessionEvent.combinedLosUtc || "").split(" ").pop()
+                            return "Pass #" + detailsRoot.sessionEvent.passIndex + " • " + aos + " → " + los + " UTC (" + detailsRoot.sessionEvent.combinedDurationFormatted + ")"
                         }
+                        font.pixelSize: 12
+                        font.family: "monospace"
+                        color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                    }
 
-                        Label {
-                            text: detailsRoot.snrProfileData ? detailsRoot.snrProfileData.satelliteName : "Satellite Pass"
+                    // Peak Elevation Pill
+                    Rectangle {
+                        height: 22
+                        width: pkElText.implicitWidth + 12
+                        radius: 6
+                        color: detailsRoot.lightMode ? "#f1f3f5" : "#1c202c"
+                        border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
+                        Text {
+                            id: pkElText
+                            anchors.centerIn: parent
+                            text: detailsRoot.sessionEvent ? ("Peak El: " + detailsRoot.sessionEvent.maxElevationDeg + "°") : ""
                             font.bold: true
-                            font.pixelSize: 16
-                            color: detailsRoot.lightMode ? "#212529" : "#ffffff"
+                            font.pixelSize: 11
+                            color: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.maxElevationDeg >= 50) ? "#51cf66" : "#fcc419"
                         }
+                    }
 
-                        Rectangle {
-                            visible: detailsRoot.sessionEvent && detailsRoot.sessionEvent.isMultiStation
-                            height: 22
-                            width: multiBadge.implicitWidth + 12
-                            radius: 11
-                            color: detailsRoot.lightMode ? "#ebfbee" : "#132d1d"
-                            border.color: "#40c057"
+                    // Estimated Session Data Volume Pill
+                    Rectangle {
+                        height: 24
+                        width: volBadgeRow.implicitWidth + 14
+                        radius: 6
+                        color: detailsRoot.lightMode ? "#e7f5ff" : "#122338"
+                        border.color: "#339af0"
+                        border.width: 1
+
+                        RowLayout {
+                            id: volBadgeRow
+                            anchors.centerIn: parent
+                            spacing: 5
                             Text {
-                                id: multiBadge
-                                anchors.centerIn: parent
-                                text: detailsRoot.sessionEvent ? ("🤝 Multi-Station Diversity: " + detailsRoot.sessionEvent.stationCount + " Stations") : ""
-                                font.bold: true
-                                font.pixelSize: 10
-                                color: "#40c057"
+                                text: "📦 Est. Data Volume:"
+                                font.pixelSize: 11
+                                color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
                             }
-                        }
-
-                        Rectangle {
-                            visible: detailsRoot.sessionEvent && detailsRoot.sessionEvent.hasConcurrentOverlap
-                            height: 22
-                            width: ovBadge.implicitWidth + 12
-                            radius: 11
-                            color: detailsRoot.lightMode ? "#fff9db" : "#2d2411"
-                            border.color: "#f59f00"
                             Text {
-                                id: ovBadge
-                                anchors.centerIn: parent
-                                text: detailsRoot.sessionEvent ? ("⚡ Overlap: " + detailsRoot.sessionEvent.overlapDurationFormatted) : ""
+                                text: {
+                                    var mb = detailsRoot.estimatedSessionVolumeMb
+                                    if (mb >= 1024.0) return (mb / 1024.0).toFixed(2) + " GB"
+                                    return mb.toFixed(1) + " MB"
+                                }
                                 font.bold: true
-                                font.pixelSize: 10
-                                color: "#f59f00"
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Rectangle {
-                            height: 24
-                            width: durBadge.implicitWidth + 14
-                            radius: 12
-                            color: detailsRoot.lightMode ? "#e7f5ff" : "#14233c"
-                            Text {
-                                id: durBadge
-                                anchors.centerIn: parent
-                                text: detailsRoot.sessionEvent ? ("⏱️ " + detailsRoot.sessionEvent.combinedDurationFormatted) : ""
-                                font.bold: true
+                                font.family: "monospace"
                                 font.pixelSize: 11
                                 color: "#339af0"
                             }
                         }
                     }
 
-                    // Timeline row
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        Label {
-                            text: detailsRoot.sessionEvent ?
-                                  ("UTC Window: " + detailsRoot.sessionEvent.combinedAosUtc + " → " + detailsRoot.sessionEvent.combinedLosUtc) : ""
-                            font.pixelSize: 11
-                            font.family: "monospace"
-                            color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                        }
-
-                        Label {
-                            text: detailsRoot.sessionEvent ? ("Peak Elevation: " + detailsRoot.sessionEvent.maxElevationDeg + "°") : ""
-                            font.bold: true
-                            font.pixelSize: 11
-                            color: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.maxElevationDeg >= 50) ? "#2f9e44" : "#f59f00"
-                        }
-
-                        Label {
-                            text: detailsRoot.sessionEvent ? ("Stations: " + detailsRoot.sessionEvent.stationNames) : ""
-                            font.pixelSize: 11
-                            color: detailsRoot.lightMode ? "#495057" : "#ced4da"
-                        }
-                    }
-                }
-            }
-
-            // --- PARTICIPATING GROUND STATIONS BREAKDOWN (WITH PER-STATION FACTOR MODULES & POLAR PLOT) ---
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                Label {
-                    text: qsTr("Participating Ground Stations Breakdown")
-                    font.bold: true
-                    font.pixelSize: 13
-                    color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                }
-
-                Rectangle {
-                    height: 20
-                    width: graphLossBadgeText.implicitWidth + 14
-                    radius: 10
-                    color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
-                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
-                           : (detailsRoot.lightMode ? "#f1f3f5" : "#1e2230")
-                    border.color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
-                                  ? "#40c057"
-                                  : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
-                    border.width: 1
-                    Text {
-                        id: graphLossBadgeText
-                        anchors.centerIn: parent
-                        text: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
-                              ? "⚡ Extra Factor Losses Applied to Graph"
-                              : "Baseline Link Budget (Default FSPL Active)"
-                        font.bold: true
-                        font.pixelSize: 10
-                        color: (detailsRoot.snrProfileData && detailsRoot.snrProfileData.hasExtraAttenuation)
-                               ? "#40c057"
-                               : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                Button {
-                    id: previewSessionInputPopupBtn
-                    height: 24
-                    background: Rectangle {
-                        radius: 6
-                        color: previewSessionInputPopupBtn.hovered
-                               ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
-                               : (detailsRoot.lightMode ? "#ffffff" : "#141720")
-                        border.color: "#339af0"
-                        border.width: 1
-                    }
-                    contentItem: Text {
-                        text: "{ } Session Input JSON"
-                        font.bold: true
-                        font.pixelSize: 10
-                        color: "#339af0"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: 8
-                        rightPadding: 8
-                    }
-                    onClicked: {
-                        detailsRoot.generateInputJsonPreviewRequested()
-                        var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
-                        var satName = (detailsRoot.snrProfileData && detailsRoot.snrProfileData.satelliteName) ? detailsRoot.snrProfileData.satelliteName : "Satellite"
-                        detailsRoot.previewJsonModalRequested(
-                            qsTr("Session Prediction Input JSON"),
-                            satName + " — Pass #" + passIdx + " (Full session prediction payload)",
-                            detailsRoot.sessionInputJsonPreview,
-                            "session_pass_" + passIdx + "_input.json"
-                        )
-                    }
-                }
-
-                // Python runtime badge
-                Rectangle {
-                    height: 24
-                    width: pyTopBadgeRow.implicitWidth + 12
-                    radius: 12
-                    color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
-                           : (detailsRoot.lightMode ? "#fff5f5" : "#2d1418")
-                    border.color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                                  ? "#40c057"
-                                  : "#fa5252"
-                    border.width: 1
-
-                    RowLayout {
-                        id: pyTopBadgeRow
-                        anchors.centerIn: parent
-                        spacing: 5
-
-                        Rectangle {
-                            width: 6; height: 6; radius: 3
-                            color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
-                        }
-                        Text {
-                            text: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available)
-                                  ? (detailsRoot.pythonEnvInfo.version + (detailsRoot.pythonEnvInfo.isVenv ? " (venv)" : " (Global)"))
-                                  : "Python Not Found"
-                            font.bold: true
-                            font.pixelSize: 10
-                            color: (detailsRoot.pythonEnvInfo && detailsRoot.pythonEnvInfo.available) ? "#40c057" : "#fa5252"
-                        }
-                    }
-                }
-            }
-
-            // Participating Ground Station Cards Grid (each station has Pass Geometry + Per-Station Factor Modules + Polar Plot Space)
-            GridLayout {
-                Layout.fillWidth: true
-                columns: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses && detailsRoot.sessionEvent.stationPasses.length === 1) ? 1 : 2
-                columnSpacing: 12
-                rowSpacing: 12
-
-                Repeater {
-                    model: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses) ? detailsRoot.sessionEvent.stationPasses : []
-
-                    Rectangle {
-                        id: stationBreakdownCard
-                        readonly property int stationIndex: index
-                        readonly property string stId: modelData.stationId || ("GS-" + (index + 1))
-                        readonly property string stName: modelData.stationName || ("Station " + (index + 1))
-                        readonly property color stColor: detailsRoot.getStationColor(index)
-                        readonly property var stModulesList: (detailsRoot.stationFactorModulesMap && detailsRoot.stationFactorModulesMap[stId])
-                                                             ? detailsRoot.stationFactorModulesMap[stId]
-                                                             : []
-                        readonly property var stSnrEntry: {
-                            if (!detailsRoot.snrProfileData || !detailsRoot.snrProfileData.stations) return null
-                            for (var s = 0; s < detailsRoot.snrProfileData.stations.length; s++) {
-                                var candidate = detailsRoot.snrProfileData.stations[s]
-                                if (candidate.stationId === stId || candidate.stationName === stName) {
-                                    return candidate
-                                }
-                            }
-                            if (index < detailsRoot.snrProfileData.stations.length) {
-                                return detailsRoot.snrProfileData.stations[index]
-                            }
-                            return null
-                        }
-
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignTop
-                        implicitHeight: stationCardMainRow.implicitHeight + 22
-                        Layout.preferredHeight: implicitHeight
-                        radius: 10
-                        color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                        border.color: stColor
-                        border.width: 1.2
-
-                        RowLayout {
-                            id: stationCardMainRow
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: 11
-                            spacing: 12
-
-                            // LEFT/CENTER COLUMN: Station Telemetry + Per-Station Factor Modules + Correlation Status
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignTop
-                                spacing: 7
-
-                                // 1. Station Header & Pass Geometry
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Rectangle {
-                                        width: 9; height: 9; radius: 4.5
-                                        color: stationBreakdownCard.stColor
-                                    }
-
-                                    Label {
-                                        text: stationBreakdownCard.stName
-                                        font.bold: true
-                                        font.pixelSize: 13
-                                        color: stationBreakdownCard.stColor
-                                    }
-
-                                    Item { Layout.fillWidth: true }
-
-                                    Button {
-                                        id: stInputJsonBtn
-                                        height: 22
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: stInputJsonBtn.hovered
-                                                   ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
-                                                   : (detailsRoot.lightMode ? "#f1f3f5" : "#1a1e29")
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3548"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "{ } Input JSON"
-                                            font.bold: true
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            leftPadding: 6
-                                            rightPadding: 6
-                                        }
-                                        onClicked: {
-                                            detailsRoot.previewStationInputJsonRequested(stationBreakdownCard.stId, stationBreakdownCard.stName)
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        height: 20
-                                        width: visTimeTxt.implicitWidth + 12
-                                        radius: 10
-                                        color: detailsRoot.lightMode ? "#f1f3f5" : "#1c2130"
-                                        Text {
-                                            id: visTimeTxt
-                                            anchors.centerIn: parent
-                                            text: "Visible: " + modelData.durationFormatted
-                                            font.bold: true
-                                            font.pixelSize: 10
-                                            color: detailsRoot.lightMode ? "#212529" : "#ffffff"
-                                        }
-                                    }
-                                }
-
-                                // AOS / LOS / TCA / Peak Elevation Row
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 10
-
-                                    Label {
-                                        text: "AOS: " + modelData.aosUtc + " (" + modelData.aosAzimuthCompass + ") → LOS: " + modelData.losUtc + " (" + modelData.losAzimuthCompass + ")"
-                                        font.pixelSize: 10
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                    }
-
-                                    Item { Layout.fillWidth: true }
-
-                                    Label {
-                                        text: "TCA: " + modelData.tcaUtc + " • Peak El: " + modelData.maxElevationDeg + "° • " + Math.round(modelData.tcaRangeKm) + " km"
-                                        font.bold: true
-                                        font.pixelSize: 10
-                                        color: modelData.maxElevationDeg >= 50.0 ? "#2f9e44" : "#f59f00"
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 1
-                                    color: detailsRoot.lightMode ? "#e9ecef" : "#222838"
-                                }
-
-                                // 2. Per-Station Factor Modules Header & Add Controls
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Label {
-                                        text: qsTr("Loss Factor Modules:")
-                                        font.bold: true
-                                        font.pixelSize: 10
-                                        color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
-                                    }
-
-                                    ComboBox {
-                                        id: stRecentModulesCombo
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 110
-                                        height: 24
-                                        model: detailsRoot.recentModulesList
-                                        textRole: "name"
-                                        valueRole: "path"
-                                        font.pixelSize: 10
-
-                                        delegate: ItemDelegate {
-                                            width: stRecentModulesCombo.width
-                                            contentItem: ColumnLayout {
-                                                spacing: 1
-                                                Text {
-                                                    text: modelData.name
-                                                    font.bold: true
-                                                    font.pixelSize: 10
-                                                    color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                                    elide: Text.ElideRight
-                                                    Layout.fillWidth: true
-                                                }
-                                                Text {
-                                                    text: modelData.path
-                                                    font.pixelSize: 8
-                                                    font.family: "monospace"
-                                                    color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                                    elide: Text.ElideMiddle
-                                                    Layout.fillWidth: true
-                                                }
-                                            }
-                                            background: Rectangle {
-                                                color: highlighted
-                                                       ? (detailsRoot.lightMode ? "#e7f5ff" : "#1e293b")
-                                                       : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                            }
-                                        }
-                                    }
-
-                                    Button {
-                                        id: stAddModBtn
-                                        height: 24
-                                        enabled: detailsRoot.recentModulesList && detailsRoot.recentModulesList.length > 0
-                                        background: Rectangle {
-                                            radius: 5
-                                            color: stAddModBtn.hovered ? "#1c7ed6" : "#228be6"
-                                            opacity: stAddModBtn.enabled ? 1.0 : 0.5
-                                        }
-                                        contentItem: Text {
-                                            text: "＋ Add"
-                                            font.bold: true
-                                            font.pixelSize: 9
-                                            color: "#ffffff"
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            leftPadding: 7
-                                            rightPadding: 7
-                                        }
-                                        onClicked: {
-                                            if (stRecentModulesCombo.currentIndex >= 0 && stRecentModulesCombo.currentIndex < detailsRoot.recentModulesList.length) {
-                                                var item = detailsRoot.recentModulesList[stRecentModulesCombo.currentIndex]
-                                                detailsRoot.addRecentStationModuleRequested(stationBreakdownCard.stId, item.path)
-                                            }
-                                        }
-                                    }
-
-                                    Button {
-                                        id: stBrowseModBtn
-                                        height: 24
-                                        background: Rectangle {
-                                            radius: 5
-                                            color: stBrowseModBtn.hovered
-                                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
-                                            border.color: "#339af0"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "📂 .py"
-                                            font.bold: true
-                                            font.pixelSize: 9
-                                            color: "#339af0"
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            leftPadding: 6
-                                            rightPadding: 6
-                                        }
-                                        onClicked: detailsRoot.browseStationModuleRequested(stationBreakdownCard.stId)
-                                    }
-                                }
-
-                                // 3. Factor Modules List for THIS Station (Starts with Default Locked FSPL)
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 4
-
-                                    // DEFAULT LOCKED FACTOR MODULE: FSPL (Free Space Path Loss) — Cannot be turned off
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        implicitHeight: 30
-                                        radius: 5
-                                        color: detailsRoot.lightMode ? "#ebfbee" : "#0f1e19"
-                                        border.color: detailsRoot.lightMode ? "#b2f2bb" : "#234832"
-                                        border.width: 1
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 6
-                                            anchors.rightMargin: 6
-                                            spacing: 6
-
-                                            // Locked ON Pill (cannot be turned off)
-                                            Rectangle {
-                                                width: 52
-                                                height: 20
-                                                radius: 10
-                                                color: "#2b8a3e"
-                                                border.color: "#40c057"
-                                                border.width: 1
-
-                                                RowLayout {
-                                                    anchors.centerIn: parent
-                                                    spacing: 2
-                                                    Text {
-                                                        text: "ON"
-                                                        font.bold: true
-                                                        font.pixelSize: 8
-                                                        color: "#ffffff"
-                                                    }
-                                                    Text {
-                                                        text: "🔒"
-                                                        font.pixelSize: 8
-                                                    }
-                                                }
-                                            }
-
-                                            Label {
-                                                text: "FSPL (Free Space Path Loss)"
-                                                font.bold: true
-                                                font.pixelSize: 10
-                                                color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                            }
-
-                                            Rectangle {
-                                                height: 15
-                                                width: fsplUnitBadge.implicitWidth + 8
-                                                radius: 4
-                                                color: detailsRoot.lightMode ? "#d3f9d8" : "#163624"
-                                                Text {
-                                                    id: fsplUnitBadge
-                                                    anchors.centerIn: parent
-                                                    text: "fspl [dB]"
-                                                    font.pixelSize: 8
-                                                    font.family: "monospace"
-                                                    font.bold: true
-                                                    color: "#51cf66"
-                                                }
-                                            }
-
-                                            Item { Layout.fillWidth: true }
-
-                                            Text {
-                                                text: stationBreakdownCard.stSnrEntry && stationBreakdownCard.stSnrEntry.minFsplDb < 900
-                                                      ? ("Min: " + stationBreakdownCard.stSnrEntry.minFsplDb.toFixed(1) + " dB • Default")
-                                                      : "Default (Always Active)"
-                                                font.pixelSize: 9
-                                                font.family: "monospace"
-                                                font.bold: true
-                                                color: "#40c057"
-                                            }
-                                        }
-                                    }
-
-                                    // ATTACHABLE PYTHON FACTOR MODULES FOR THIS STATION (Toggled ON/OFF Independently)
-                                    Repeater {
-                                        model: stationBreakdownCard.stModulesList
-
-                                        Rectangle {
-                                            Layout.fillWidth: true
-                                            implicitHeight: 32
-                                            radius: 5
-                                            color: modelData.enabled
-                                                   ? (detailsRoot.lightMode ? "#ebfbee" : "#11211c")
-                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#151924")
-                                            border.color: modelData.status === "error"
-                                                          ? "#fa5252"
-                                                          : (modelData.enabled
-                                                             ? "#40c057"
-                                                             : (modelData.status === "running"
-                                                                ? "#339af0"
-                                                                : (detailsRoot.lightMode ? "#dee2e6" : "#252a3a")))
-                                            border.width: 1
-
-                                            RowLayout {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: 6
-                                                anchors.rightMargin: 6
-                                                spacing: 6
-
-                                                // Independent ON / OFF Toggle Switch for this station's factor module
-                                                Button {
-                                                    id: stFactorToggleBtn
-                                                    implicitWidth: 52
-                                                    implicitHeight: 20
-                                                    padding: 0
-                                                    background: Rectangle {
-                                                        radius: 10
-                                                        color: modelData.enabled
-                                                               ? "#40c057"
-                                                               : (detailsRoot.lightMode ? "#ced4da" : "#2c3242")
-                                                        border.color: modelData.enabled ? "#2f9e44" : (detailsRoot.lightMode ? "#adb5bd" : "#3b4254")
-                                                        border.width: 1
-
-                                                        Rectangle {
-                                                            width: 14
-                                                            height: 14
-                                                            radius: 7
-                                                            y: 3
-                                                            x: modelData.enabled ? (parent.width - width - 3) : 3
-                                                            color: "#ffffff"
-                                                            Behavior on x { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
-                                                        }
-
-                                                        Text {
-                                                            anchors.verticalCenter: parent.verticalCenter
-                                                            x: modelData.enabled ? 6 : 21
-                                                            text: modelData.enabled ? "ON" : "OFF"
-                                                            font.bold: true
-                                                            font.pixelSize: 8
-                                                            color: modelData.enabled ? "#ffffff" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
-                                                        }
-                                                    }
-                                                    onClicked: {
-                                                        detailsRoot.toggleStationModuleEnabledRequested(
-                                                            stationBreakdownCard.stId,
-                                                            index,
-                                                            !modelData.enabled
-                                                        )
-                                                    }
-                                                }
-
-                                                Label {
-                                                    text: modelData.name
-                                                    font.bold: true
-                                                    font.pixelSize: 10
-                                                    elide: Text.ElideRight
-                                                    color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                                }
-
-                                                Rectangle {
-                                                    visible: modelData.factorName !== undefined && modelData.factorName !== ""
-                                                    height: 15
-                                                    width: stFactorMetaTxt.implicitWidth + 8
-                                                    radius: 4
-                                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#182b49"
-                                                    Text {
-                                                        id: stFactorMetaTxt
-                                                        anchors.centerIn: parent
-                                                        text: (modelData.factorName || "") + (modelData.units ? (" [" + modelData.units + "]") : "")
-                                                        font.pixelSize: 8
-                                                        font.family: "monospace"
-                                                        font.bold: true
-                                                        color: "#4dabf7"
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    height: 15
-                                                    width: stModStatusTxt.implicitWidth + 8
-                                                    radius: 7
-                                                    color: modelData.status === "error"
-                                                           ? "#2d1418"
-                                                           : (modelData.status === "running"
-                                                              ? "#14233c"
-                                                              : (modelData.enabled && modelData.status === "done"
-                                                                 ? "#132d1d"
-                                                                 : (detailsRoot.lightMode ? "#e9ecef" : "#252a38")))
-                                                    Text {
-                                                        id: stModStatusTxt
-                                                        anchors.centerIn: parent
-                                                        text: modelData.status === "error"
-                                                              ? "Error"
-                                                              : (modelData.status === "running"
-                                                                 ? "Running..."
-                                                                 : (modelData.enabled
-                                                                    ? (modelData.status === "done" ? "Applied" : "Queued")
-                                                                    : (modelData.status === "done" ? "Cached (OFF)" : "OFF")))
-                                                        font.bold: true
-                                                        font.pixelSize: 8
-                                                        color: modelData.status === "error"
-                                                               ? "#ff6b6b"
-                                                               : (modelData.status === "running"
-                                                                  ? "#4dabf7"
-                                                                  : (modelData.enabled && modelData.status === "done"
-                                                                     ? "#51cf66"
-                                                                     : (detailsRoot.lightMode ? "#6c757d" : "#adb5bd")))
-                                                    }
-                                                }
-
-                                                Item { Layout.fillWidth: true }
-
-                                                // Preview Factor Output JSON in Modal Popup
-                                                Button {
-                                                    id: stFactorJsonBtn
-                                                    height: 20
-                                                    visible: (modelData.outputJson && modelData.outputJson.length > 0) || (modelData.errorText && modelData.errorText.length > 0)
-                                                    background: Rectangle {
-                                                        radius: 4
-                                                        color: stFactorJsonBtn.hovered
-                                                               ? (detailsRoot.lightMode ? "#e7f5ff" : "#1c3352")
-                                                               : (detailsRoot.lightMode ? "#ffffff" : "#1c2230")
-                                                        border.color: modelData.status === "error" ? "#fa5252" : "#339af0"
-                                                        border.width: 1
-                                                    }
-                                                    contentItem: Text {
-                                                        text: modelData.status === "error" ? "⚠️ Error" : "{ } JSON"
-                                                        font.bold: true
-                                                        font.pixelSize: 8
-                                                        color: modelData.status === "error" ? "#fa5252" : "#4dabf7"
-                                                        horizontalAlignment: Text.AlignHCenter
-                                                        verticalAlignment: Text.AlignVCenter
-                                                        leftPadding: 5
-                                                        rightPadding: 5
-                                                    }
-                                                    onClicked: {
-                                                        var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
-                                                        detailsRoot.previewJsonModalRequested(
-                                                            qsTr("Factor Output JSON — ") + stationBreakdownCard.stName + " (" + modelData.name + ")",
-                                                            (modelData.factorName ? ("Factor: " + modelData.factorName + " [" + modelData.units + "] — ") : "") + "Pass #" + passIdx,
-                                                            (modelData.outputJson && modelData.outputJson.length > 0) ? modelData.outputJson : modelData.errorText,
-                                                            modelData.name.replace(/\.py$/i, "") + "_" + stationBreakdownCard.stId + "_pass_" + passIdx + ".json"
-                                                        )
-                                                    }
-                                                }
-
-                                                // Re-run Factor Module for this Station
-                                                Button {
-                                                    id: stRerunFactorBtn
-                                                    height: 20
-                                                    enabled: modelData.status !== "running"
-                                                    background: Rectangle {
-                                                        radius: 4
-                                                        color: stRerunFactorBtn.hovered
-                                                               ? (detailsRoot.lightMode ? "#dee2e6" : "#2c3347")
-                                                               : (detailsRoot.lightMode ? "#e9ecef" : "#222736")
-                                                    }
-                                                    contentItem: Text {
-                                                        text: modelData.status === "running" ? "⏳" : "↻"
-                                                        font.bold: true
-                                                        font.pixelSize: 9
-                                                        color: detailsRoot.lightMode ? "#495057" : "#ced4da"
-                                                        horizontalAlignment: Text.AlignHCenter
-                                                        verticalAlignment: Text.AlignVCenter
-                                                        leftPadding: 5
-                                                        rightPadding: 5
-                                                    }
-                                                    onClicked: {
-                                                        detailsRoot.runStationModuleRequested(stationBreakdownCard.stId, index)
-                                                    }
-                                                }
-
-                                                // Remove Factor Module from this Station
-                                                Button {
-                                                    id: stRemoveModBtn
-                                                    width: 20
-                                                    height: 20
-                                                    padding: 0
-                                                    background: Rectangle {
-                                                        radius: 4
-                                                        color: stRemoveModBtn.hovered ? "#c92a2a" : "transparent"
-                                                    }
-                                                    contentItem: Text {
-                                                        text: "✕"
-                                                        font.bold: true
-                                                        font.pixelSize: 9
-                                                        color: stRemoveModBtn.hovered ? "#ffffff" : (detailsRoot.lightMode ? "#868e96" : "#909296")
-                                                        horizontalAlignment: Text.AlignHCenter
-                                                        verticalAlignment: Text.AlignVCenter
-                                                    }
-                                                    onClicked: {
-                                                        detailsRoot.removeStationModuleRequested(stationBreakdownCard.stId, index)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // RIGHT COLUMN: Dedicated Space for Polar Plot (Azimuth/Elevation Skyplot) for this Station
-                            Rectangle {
-                                Layout.preferredWidth: 162
-                                Layout.preferredHeight: 162
-                                Layout.minimumWidth: 162
-                                Layout.minimumHeight: 162
-                                Layout.alignment: Qt.AlignTop
-                                radius: 8
-                                color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1017"
-                                border.color: detailsRoot.lightMode ? "#dee2e6" : "#242a3a"
-                                border.width: 1
-
-                                Canvas {
-                                    id: stationPolarCanvas
-                                    anchors.fill: parent
-                                    antialiasing: true
-
-                                    property var stSnr: stationBreakdownCard.stSnrEntry
-                                    property color passColor: stationBreakdownCard.stColor
-                                    property int hoverIdx: detailsRoot.hoveredSampleIndex
-
-                                    onStSnrChanged: requestPaint()
-                                    onHoverIdxChanged: requestPaint()
-
-                                    onPaint: {
-                                        var ctx = getContext("2d")
-                                        var w = width
-                                        var h = height
-                                        ctx.clearRect(0, 0, w, h)
-
-                                        var cx = w / 2
-                                        var cy = h / 2 + 5
-                                        var maxR = 58
-
-                                        var isHoverValid = (hoverIdx >= 0 && stSnr && stSnr.isVisible && hoverIdx < stSnr.isVisible.length && stSnr.isVisible[hoverIdx])
-
-                                        // Title / Live Hover Readout
-                                        ctx.fillStyle = isHoverValid ? "#ffd43b" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
-                                        ctx.font = isHoverValid ? "bold 8.5px monospace" : "bold 9px sans-serif"
-                                        ctx.textAlign = "center"
-                                        if (isHoverValid) {
-                                            var curAz = Math.round(Number(stSnr.azimuthDeg[hoverIdx]) || 0)
-                                            var curEl = Math.round(Number(stSnr.elevationDeg[hoverIdx]) || 0)
-                                            ctx.fillText("Az " + curAz + "°  El " + curEl + "°", cx, 11)
-                                        } else {
-                                            ctx.fillText("Polar Skyplot (Az/El)", cx, 11)
-                                        }
-
-                                        // Concentric elevation circles: 0° (outer), 30°, 60°
-                                        ctx.strokeStyle = detailsRoot.lightMode ? "#dee2e6" : "#1e2638"
-                                        ctx.lineWidth = 1
-                                        var rings = [1.0, 2.0 / 3.0, 1.0 / 3.0]
-                                        for (var rIdx = 0; rIdx < rings.length; rIdx++) {
-                                            ctx.beginPath()
-                                            ctx.arc(cx, cy, maxR * rings[rIdx], 0, 2 * Math.PI)
-                                            ctx.stroke()
-                                        }
-
-                                        // Elevation degree labels along North axis
-                                        ctx.fillStyle = detailsRoot.lightMode ? "#adb5bd" : "#495057"
-                                        ctx.font = "7px sans-serif"
-                                        ctx.textAlign = "left"
-                                        ctx.fillText("30°", cx + 2, cy - maxR * (2.0 / 3.0) + 7)
-                                        ctx.fillText("60°", cx + 2, cy - maxR * (1.0 / 3.0) + 7)
-
-                                        // Crosshair spokes (N-S, E-W)
-                                        ctx.beginPath()
-                                        ctx.moveTo(cx - maxR, cy); ctx.lineTo(cx + maxR, cy)
-                                        ctx.moveTo(cx, cy - maxR); ctx.lineTo(cx, cy + maxR)
-                                        ctx.stroke()
-
-                                        // Compass labels (N, E, S, W)
-                                        ctx.fillStyle = detailsRoot.lightMode ? "#6c757d" : "#868e96"
-                                        ctx.font = "bold 8.5px monospace"
-                                        ctx.textAlign = "center"
-                                        ctx.textBaseline = "middle"
-                                        ctx.fillText("N", cx, cy - maxR - 6)
-                                        ctx.fillText("S", cx, cy + maxR + 7)
-                                        ctx.fillText("E", cx + maxR + 7, cy)
-                                        ctx.fillText("W", cx - maxR - 7, cy)
-                                        ctx.textBaseline = "alphabetic" // reset
-
-                                        // Plot satellite pass trajectory if azimuthDeg & elevationDeg are available
-                                        if (stSnr && stSnr.elevationDeg && stSnr.azimuthDeg && stSnr.isVisible) {
-                                            var nPts = stSnr.elevationDeg.length
-                                            ctx.beginPath()
-                                            ctx.strokeStyle = passColor
-                                            ctx.lineWidth = 2.0
-                                            var started = false
-                                            var prevVis = false
-                                            var firstX = 0, firstY = 0, lastX = 0, lastY = 0
-
-                                            for (var i = 0; i < nPts; i++) {
-                                                if (!stSnr.isVisible[i]) {
-                                                    prevVis = false
-                                                    continue
-                                                }
-                                                var el = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[i]) || 0.0))
-                                                var azDeg = ((Number(stSnr.azimuthDeg[i]) || 0.0) % 360.0 + 360.0) % 360.0
-                                                // 0 deg = North (top), 90 deg = East (right), clockwise
-                                                var azRad = (azDeg - 90.0) * (Math.PI / 180.0)
-                                                var r = maxR * (1.0 - el / 90.0)
-                                                var px = cx + r * Math.cos(azRad)
-                                                var py = cy + r * Math.sin(azRad)
-
-                                                if (!started || !prevVis) {
-                                                    ctx.moveTo(px, py)
-                                                    if (!started) {
-                                                        firstX = px; firstY = py
-                                                        started = true
-                                                    }
-                                                } else {
-                                                    ctx.lineTo(px, py)
-                                                }
-                                                lastX = px; lastY = py
-                                                prevVis = true
-                                            }
-                                            if (started) {
-                                                ctx.stroke()
-
-                                                // AOS (Green) & LOS (Red) dots
-                                                ctx.fillStyle = "#51cf66"
-                                                ctx.beginPath(); ctx.arc(firstX, firstY, 3.5, 0, 2 * Math.PI); ctx.fill()
-                                                ctx.strokeStyle = "#ffffff"
-                                                ctx.lineWidth = 1
-                                                ctx.stroke()
-
-                                                ctx.fillStyle = "#ff6b6b"
-                                                ctx.beginPath(); ctx.arc(lastX, lastY, 3.5, 0, 2 * Math.PI); ctx.fill()
-                                                ctx.stroke()
-                                            }
-
-                                            // Hovered sample marker on polar plot
-                                            if (isHoverValid && hoverIdx < nPts) {
-                                                var hEl = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[hoverIdx]) || 0.0))
-                                                var hAzDeg = ((Number(stSnr.azimuthDeg[hoverIdx]) || 0.0) % 360.0 + 360.0) % 360.0
-                                                var hAzRad = (hAzDeg - 90.0) * (Math.PI / 180.0)
-                                                var hR = maxR * (1.0 - hEl / 90.0)
-                                                var hx = cx + hR * Math.cos(hAzRad)
-                                                var hy = cy + hR * Math.sin(hAzRad)
-                                                ctx.fillStyle = "#ffd43b"
-                                                ctx.beginPath(); ctx.arc(hx, hy, 4.5, 0, 2 * Math.PI); ctx.fill()
-                                                ctx.strokeStyle = "#ffffff"
-                                                ctx.lineWidth = 1.2
-                                                ctx.stroke()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- SESSION-WIDE CORRELATION MODULE BAR (ONE FOR THE SESSION, ABOVE GRAPH) ---
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: sessionCorrCol.implicitHeight + 20
-                Layout.preferredHeight: implicitHeight
-                radius: 10
-                color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
-                border.width: 1
-
-                ColumnLayout {
-                    id: sessionCorrCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 10
-                    spacing: 8
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Rectangle {
-                            width: 24
-                            height: 24
+                    Item { Layout.fillWidth: true }
+
+                    // Session Input JSON Preview Button
+                    Button {
+                        id: topInputJsonBtn
+                        height: 26
+                        background: Rectangle {
                             radius: 6
-                            color: detailsRoot.lightMode ? "#fff3bf" : "#2d2411"
-                            border.color: "#f59f00"
-                            border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "📊"
-                                font.pixelSize: 13
-                            }
+                            color: topInputJsonBtn.hovered
+                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#222736")
+                                   : "transparent"
+                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
                         }
-
-                        Label {
-                            text: qsTr("Session Correlation Module:")
-                            font.bold: true
-                            font.pixelSize: 12
-                            color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                        }
-
-                        ComboBox {
-                            id: corrModuleCombo
-                            Layout.preferredWidth: 195
-                            height: 28
-                            model: detailsRoot.recentCorrelationModulesList
-                            textRole: "name"
-                            valueRole: "path"
-                            font.pixelSize: 11
-
-                            onActivated: function(idx) {
-                                if (idx >= 0 && idx < detailsRoot.recentCorrelationModulesList.length) {
-                                    detailsRoot.correlationModuleSelected(detailsRoot.recentCorrelationModulesList[idx].path)
-                                }
-                            }
-
-                            delegate: ItemDelegate {
-                                width: corrModuleCombo.width
-                                contentItem: ColumnLayout {
-                                    spacing: 1
-                                    Text {
-                                        text: modelData.name
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    Text {
-                                        text: modelData.path
-                                        font.pixelSize: 9
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: highlighted
-                                           ? (detailsRoot.lightMode ? "#fff3bf" : "#2d2411")
-                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                }
-                            }
-                        }
-
-                        Button {
-                            id: browseCorrModBtn
-                            height: 28
-                            background: Rectangle {
-                                radius: 6
-                                color: browseCorrModBtn.hovered
-                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
-                                border.color: "#f59f00"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: "📂 Browse (.py)"
-                                font.bold: true
-                                font.pixelSize: 10
-                                color: "#f59f00"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 8
-                                rightPadding: 8
-                            }
-                            onClicked: detailsRoot.browseCorrelationModuleRequested()
-                        }
-
-                        Rectangle {
-                            width: 1; height: 18
-                            color: detailsRoot.lightMode ? "#dee2e6" : "#2d3345"
-                        }
-
-                        Label {
-                            text: qsTr("Lookup Table (.xlsx):")
+                        contentItem: Text {
+                            text: "{ } Input JSON"
                             font.bold: true
                             font.pixelSize: 11
-                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                            leftPadding: 8; rightPadding: 8
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                        onClicked: {
+                            detailsRoot.generateInputJsonPreviewRequested()
+                            var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
+                            var satName = (detailsRoot.snrProfileData && detailsRoot.snrProfileData.satelliteName) ? detailsRoot.snrProfileData.satelliteName : "Satellite"
+                            detailsRoot.previewJsonModalRequested(
+                                qsTr("Session Prediction Input JSON"),
+                                satName + " — Pass #" + passIdx + " (Full session prediction payload)",
+                                detailsRoot.sessionInputJsonPreview,
+                                "session_pass_" + passIdx + "_input.json"
+                            )
+                        }
+                    }
 
-                        ComboBox {
-                            id: excelFileCombo
-                            Layout.preferredWidth: 195
-                            height: 28
-                            model: detailsRoot.recentExcelFilesList
-                            textRole: "name"
-                            valueRole: "path"
+                    // Preview YAML Plan Button
+                    Button {
+                        id: topPreviewPlanBtn
+                        height: 26
+                        background: Rectangle {
+                            radius: 6
+                            color: topPreviewPlanBtn.hovered
+                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#222736")
+                                   : "transparent"
+                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
+                        }
+                        contentItem: Text {
+                            text: qsTr("👁️ Session Plan")
+                            font.bold: true
                             font.pixelSize: 11
-
-                            onActivated: function(idx) {
-                                if (idx >= 0 && idx < detailsRoot.recentExcelFilesList.length) {
-                                    detailsRoot.excelFileSelected(detailsRoot.recentExcelFilesList[idx].path)
-                                }
-                            }
-
-                            delegate: ItemDelegate {
-                                width: excelFileCombo.width
-                                contentItem: ColumnLayout {
-                                    spacing: 1
-                                    Text {
-                                        text: modelData.name
-                                        font.bold: true
-                                        font.pixelSize: 11
-                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    Text {
-                                        text: modelData.path
-                                        font.pixelSize: 9
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: highlighted
-                                           ? (detailsRoot.lightMode ? "#ebfbee" : "#132d1d")
-                                           : (detailsRoot.lightMode ? "#ffffff" : "#1a1e29")
-                                }
-                            }
+                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                            leftPadding: 8; rightPadding: 8
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                        onClicked: detailsRoot.previewSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
+                    }
 
-                        Button {
-                            id: browseExcelBtn
-                            height: 28
-                            background: Rectangle {
-                                radius: 6
-                                color: browseExcelBtn.hovered
-                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a")
-                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#181c28")
-                                border.color: "#40c057"
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: "📊 Browse (.xlsx)"
-                                font.bold: true
-                                font.pixelSize: 10
-                                color: "#40c057"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: 8
-                                rightPadding: 8
-                            }
-                            onClicked: detailsRoot.browseExcelFileRequested()
+                    // Export YAML Plan Button
+                    Button {
+                        id: topExportPlanBtn
+                        height: 26
+                        background: Rectangle {
+                            radius: 6
+                            color: topExportPlanBtn.hovered ? "#d9480f" : "#e67700"
                         }
-
-                        Item { Layout.fillWidth: true }
-
-                        // Per-Station Correlated Attenuation Badges & JSON Preview Buttons
-                        Repeater {
-                            model: detailsRoot.stationCorrelationModel
-
-                            Rectangle {
-                                height: 28
-                                width: stCorrPillRow.implicitWidth + 14
-                                radius: 6
-                                color: detailsRoot.lightMode ? "#f8f9fa" : "#10131c"
-                                border.color: model.status === "error"
-                                              ? "#fa5252"
-                                              : ((model.status === "done" || model.status === "warning")
-                                                 ? "#40c057"
-                                                 : (detailsRoot.lightMode ? "#dee2e6" : "#252a3a"))
-                                border.width: 1
-
-                                RowLayout {
-                                    id: stCorrPillRow
-                                    anchors.centerIn: parent
-                                    spacing: 6
-
-                                    Rectangle {
-                                        width: 7; height: 7; radius: 3.5
-                                        color: detailsRoot.getStationColor(index)
-                                    }
-
-                                    Text {
-                                        text: model.stationName + ":"
-                                        font.bold: true
-                                        font.pixelSize: 10
-                                        color: detailsRoot.getStationColor(index)
-                                    }
-
-                                    Text {
-                                        text: {
-                                            if (model.status === "error") return "Error"
-                                            if (model.status === "running") return "Correlating..."
-                                            if (model.status === "done" || model.status === "warning") {
-                                                var pk = model.peakAttenuationDb !== undefined ? Number(model.peakAttenuationDb) : 0.0
-                                                return "-" + pk.toFixed(1) + " dB peak"
-                                            }
-                                            return "0.0 dB extra"
-                                        }
-                                        font.bold: true
-                                        font.pixelSize: 10
-                                        font.family: "monospace"
-                                        color: (model.status === "done" || model.status === "warning")
-                                               ? "#fcc419"
-                                               : (detailsRoot.lightMode ? "#6c757d" : "#909296")
-                                    }
-
-                                    Button {
-                                        id: corrInMiniBtn
-                                        height: 20
-                                        visible: model.inputJson && model.inputJson.length > 0
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: corrInMiniBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#252a3a") : "transparent"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "{ } In"
-                                            font.bold: true
-                                            font.pixelSize: 8
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                            leftPadding: 4; rightPadding: 4
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
-                                        onClicked: {
-                                            detailsRoot.previewJsonModalRequested(
-                                                qsTr("Correlation Input JSON — ") + model.stationName,
-                                                qsTr("Per-station factor arrays sent to session correlation module"),
-                                                model.inputJson,
-                                                "correlation_input_" + (model.stationId || "station") + ".json"
-                                            )
-                                        }
-                                    }
-
-                                    Button {
-                                        id: corrOutMiniBtn
-                                        height: 20
-                                        visible: (model.outputJson && model.outputJson.length > 0) || (model.errorText && model.errorText.length > 0)
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: corrOutMiniBtn.hovered ? (detailsRoot.lightMode ? "#fff3bf" : "#3b2e14") : "transparent"
-                                            border.color: model.status === "error" ? "#fa5252" : "#f59f00"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "{ } Out"
-                                            font.bold: true
-                                            font.pixelSize: 8
-                                            color: model.status === "error" ? "#fa5252" : "#fcc419"
-                                            leftPadding: 4; rightPadding: 4
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
-                                        onClicked: {
-                                            var corrModName = detailsRoot.selectedCorrelationModulePath ? detailsRoot.selectedCorrelationModulePath.split("/").pop() : "step_correlation.py"
-                                            detailsRoot.previewJsonModalRequested(
-                                                qsTr("Predicted Attenuation Output JSON — ") + model.stationName,
-                                                "Correlated via " + corrModName + " (" + (model.expectedSamples || 0) + " visible samples)",
-                                                (model.outputJson && model.outputJson.length > 0) ? model.outputJson : model.errorText,
-                                                "predicted_attenuation_" + (model.stationId || "station") + ".json"
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                        contentItem: Text {
+                            text: qsTr("💾 Export .yaml")
+                            font.bold: true
+                            font.pixelSize: 11
+                            color: "#ffffff"
+                            leftPadding: 8; rightPadding: 8
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                        onClicked: detailsRoot.exportSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
                     }
                 }
             }
 
-            // --- CONTROLS & METRIC TABS ---
+            // =========================================================================
+            // 2. CONTROLS & METRIC TABS + TELEMETRY BAR + SNR/LOSS GRAPH
+            // =========================================================================
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
 
                 RowLayout {
-                    spacing: 4
+                    spacing: 6
 
                     Repeater {
                         model: [
@@ -1519,6 +559,7 @@ Rectangle {
 
                 Item { Layout.fillWidth: true }
 
+                /* Commented out MRC Envelope and Shannon Limits toggles for now per user request:
                 CheckBox {
                     text: qsTr("Combined MRC Envelope")
                     checked: detailsRoot.showMrcEnvelope
@@ -1554,16 +595,17 @@ Rectangle {
                         embeddedPlotCanvas.requestPaint()
                     }
                 }
+                */
             }
 
             // --- LIVE CROSSHAIR TELEMETRY HUD ---
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: 36
-                Layout.preferredHeight: 36
+                implicitHeight: 34
+                Layout.preferredHeight: 34
                 radius: 6
                 color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
+                border.color: detailsRoot.lightMode ? "#dee2e6" : "#222736"
 
                 RowLayout {
                     anchors.fill: parent
@@ -1596,7 +638,7 @@ Rectangle {
                         }
                     }
 
-                    Rectangle { width: 1; height: 18; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
+                    Rectangle { width: 1; height: 16; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1611,13 +653,13 @@ Rectangle {
                                     width: 8
                                     height: 8
                                     radius: 4
-                                    color: detailsRoot.getStationColor(index)
+                                    color: detailsRoot.getStationColor(modelData.stationId || modelData.stationName, index)
                                 }
                                 Text {
                                     text: modelData.stationName + ":"
                                     font.bold: true
                                     font.pixelSize: 11
-                                    color: detailsRoot.getStationColor(index)
+                                    color: detailsRoot.getStationColor(modelData.stationId || modelData.stationName, index)
                                 }
                                 Text {
                                     font.bold: true
@@ -1647,7 +689,7 @@ Rectangle {
                         }
                     }
 
-                    Rectangle { width: 1; height: 18; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
+                    Rectangle { width: 1; height: 16; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
 
                     RowLayout {
                         spacing: 6
@@ -1679,8 +721,8 @@ Rectangle {
             // --- EMBEDDED SNR CANVAS PLOT ---
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: 320
-                Layout.preferredHeight: 320
+                implicitHeight: 310
+                Layout.preferredHeight: 310
                 radius: 8
                 color: detailsRoot.lightMode ? "#ffffff" : "#0d1017"
                 border.color: detailsRoot.lightMode ? "#dee2e6" : "#242a3a"
@@ -1693,8 +735,16 @@ Rectangle {
 
                     property real paddingLeft: 55
                     property real paddingRight: 25
-                    property real paddingTop: 25
-                    property real paddingBottom: 40
+                    property real paddingTop: 22
+                    property real paddingBottom: 38
+
+                    onAvailableChanged: {
+                        if (available) {
+                            requestPaint()
+                        }
+                    }
+                    onWidthChanged: requestPaint()
+                    onHeightChanged: requestPaint()
 
                     onPaint: {
                         var ctx = getContext("2d")
@@ -1810,6 +860,7 @@ Rectangle {
                             ctx.fillText(secText, xp, paddingTop + plotH + 24)
                         }
 
+                        /* Commented out Shannon Limits lines per user request:
                         // Shannon Limits
                         if (metric === "snr" && detailsRoot.showShannonLimits) {
                             var y0 = mapY(data.shannonRawThresholdDb)
@@ -1831,11 +882,12 @@ Rectangle {
                             ctx.fillText("4.77 dB Rate 1/2 Turbo Limit", paddingLeft + 8, yTurbo - 3)
                             ctx.setLineDash([])
                         }
+                        */
 
                         // Station Curves
                         for (var sIdx = 0; sIdx < data.stations.length; sIdx++) {
                             var station = data.stations[sIdx]
-                            var col = detailsRoot.getStationColor(sIdx)
+                            var col = detailsRoot.getStationColor(station.stationId || station.stationName, sIdx)
                             var vec = []
                             var baseVec = null
                             if (metric === "snr") {
@@ -1884,8 +936,8 @@ Rectangle {
                                 ctx.lineTo(mapX(N - 1), mapY(yMin))
                                 ctx.closePath()
                                 var grad = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + plotH)
-                                grad.addColorStop(0, col + "26")
-                                grad.addColorStop(1, col + "00")
+                                grad.addColorStop(0, detailsRoot.getStationFillColor(col, "26"))
+                                grad.addColorStop(1, detailsRoot.getStationFillColor(col, "00"))
                                 ctx.fillStyle = grad
                                 ctx.fill()
                             }
@@ -1908,6 +960,7 @@ Rectangle {
                             ctx.stroke()
                         }
 
+                        /* Commented out Combined MRC Envelope line per user request:
                         // Combined MRC Envelope
                         if (metric === "snr" && detailsRoot.showMrcEnvelope && data.hasOverlap && data.combinedMrcSnrDb) {
                             ctx.beginPath()
@@ -1924,6 +977,7 @@ Rectangle {
                             ctx.stroke()
                             ctx.setLineDash([])
                         }
+                        */
 
                         // Crosshair
                         if (detailsRoot.hoveredSampleIndex >= 0 && detailsRoot.hoveredSampleIndex < N) {
@@ -1970,277 +1024,650 @@ Rectangle {
                 }
             }
 
-            // --- TRANSMISSION PARAMETERS & SESSION PLAN (AMC) ---
+            // =========================================================================
+            // 3. TARGET SATELLITE BLOCK WITH CONFIG
+            // =========================================================================
+            Label {
+                text: qsTr("Target Satellite:")
+                font.bold: true
+                font.pixelSize: 13
+                color: detailsRoot.lightMode ? "#1a1b1e" : "#e9ecef"
+                Layout.topMargin: 2
+            }
+
             Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: amcSectionCol.implicitHeight + 28
+                id: targetSatelliteCard
+                Layout.preferredWidth: Math.min(mainContentCol.width, 540)
+                Layout.maximumWidth: 620
+                implicitHeight: targetSatCol.implicitHeight + 28
                 Layout.preferredHeight: implicitHeight
                 radius: 10
                 color: detailsRoot.lightMode ? "#ffffff" : "#141720"
-                border.color: detailsRoot.lightMode ? "#dee2e6" : "#262b3a"
+                border.color: detailsRoot.lightMode ? "#dee2e6" : "#222736"
                 border.width: 1
 
                 ColumnLayout {
-                    id: amcSectionCol
+                    id: targetSatCol
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: 14
-                    spacing: 12
+                    spacing: 10
 
-                    // Header Row with Title and Action Buttons
+                    // Satellite Name + Edit Config Button
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        spacing: 8
 
-                        Rectangle {
-                            width: 30
-                            height: 30
-                            radius: 6
-                            color: "#e67700"
-                            Text {
-                                anchors.centerIn: parent
-                                text: "📡"
-                                font.pixelSize: 15
-                            }
+                        Label {
+                            text: (detailsRoot.targetSatelliteData && detailsRoot.targetSatelliteData.name)
+                                  ? detailsRoot.targetSatelliteData.name
+                                  : ((detailsRoot.snrProfileData && detailsRoot.snrProfileData.satelliteName)
+                                     ? detailsRoot.snrProfileData.satelliteName
+                                     : "ISS (ZARYA)")
+                            font.bold: true
+                            font.pixelSize: 14
+                            color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
                         }
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 1
-
-                            Label {
-                                text: qsTr("Transmission Parameters & Adaptive Coding (Session Plan)")
-                                font.bold: true
-                                font.pixelSize: 14
-                                color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                            }
-
-                            Label {
-                                text: qsTr("Configure modulation, roll-off α, and code efficiency to compute r_max and generate the YAML session plan")
-                                font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#6c757d" : "#909296"
-                            }
-                        }
+                        Item { Layout.fillWidth: true }
 
                         Button {
-                            id: previewPlanBtn
-                            text: qsTr("👁️ Preview YAML Plan")
-                            implicitHeight: 32
+                            id: editSatCfgBtn
+                            height: 24
                             background: Rectangle {
-                                radius: 6
-                                color: previewPlanBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#2c2e33") : (detailsRoot.lightMode ? "#f1f3f5" : "#1a1b1e")
-                                border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                border.width: 1
+                                radius: 5
+                                color: editSatCfgBtn.hovered
+                                       ? (detailsRoot.lightMode ? "#fff3bf" : "#2b2412")
+                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#1c202c")
+                                border.color: editSatCfgBtn.hovered ? "#f59f00" : (detailsRoot.lightMode ? "#dee2e6" : "#2d3345")
                             }
                             contentItem: Text {
-                                text: previewPlanBtn.text
+                                text: qsTr("✏️ Edit Config")
                                 font.bold: true
                                 font.pixelSize: 11
-                                color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
+                                color: editSatCfgBtn.hovered ? "#f59f00" : (detailsRoot.lightMode ? "#495057" : "#ced4da")
+                                leftPadding: 8; rightPadding: 8
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onClicked: detailsRoot.previewSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
-                        }
-
-                        Button {
-                            id: exportPlanBtn
-                            text: qsTr("💾 Export Session Plan (.yaml)")
-                            implicitHeight: 32
-                            background: Rectangle {
-                                radius: 6
-                                color: exportPlanBtn.hovered ? "#d9480f" : "#e67700"
-                            }
-                            contentItem: Text {
-                                text: exportPlanBtn.text
-                                font.bold: true
-                                font.pixelSize: 11
-                                color: "#ffffff"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onClicked: detailsRoot.exportSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Edit satellite frequency, bandwidth, modulation, coder efficiency Γ, roll-off α, and TLE")
+                            onClicked: detailsRoot.editTargetSatelliteConfigRequested()
                         }
                     }
+
+                    // "Config" Subtitle
+                    Label {
+                        text: qsTr("Config")
+                        font.pixelSize: 12
+                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                    }
+
+                    // Config Badges Flow (clickable to open Satellite Configuration Dialog)
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Repeater {
+                            model: [
+                                "f=" + (detailsRoot.carrierFreqMhz / 1000.0).toFixed(2).replace(/\.?0+$/, "") + " GHz",
+                                "B=" + (detailsRoot.channelBandwidthKhz / 1000.0).toFixed(2).replace(/\.?0+$/, "") + " MHz",
+                                "TLE=" + detailsRoot.parseTleEpochDisplay(detailsRoot.targetSatelliteData ? detailsRoot.targetSatelliteData.tle1 : ""),
+                                "Mod=" + detailsRoot.selectedModulation,
+                                "Γ=" + detailsRoot.codeEfficiencyCoef.toFixed(2).replace(/\.?0+$/, ""),
+                                "alpha=" + detailsRoot.rolloffAlpha.toFixed(2).replace(/\.?0+$/, "")
+                            ]
+
+                            Rectangle {
+                                height: 28
+                                width: satPillText.implicitWidth + 18
+                                radius: 6
+                                color: satPillMouse.containsMouse
+                                       ? (detailsRoot.lightMode ? "#e9ecef" : "#232838")
+                                       : (detailsRoot.lightMode ? "#f8f9fa" : "#181c26")
+                                border.color: satPillMouse.containsMouse
+                                              ? "#f59f00"
+                                              : (detailsRoot.lightMode ? "#ced4da" : "#262b3a")
+                                border.width: 1
+
+                                Text {
+                                    id: satPillText
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    font.pixelSize: 12
+                                    color: detailsRoot.lightMode ? "#212529" : "#e9ecef"
+                                }
+
+                                MouseArea {
+                                    id: satPillMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: detailsRoot.editTargetSatelliteConfigRequested()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 4. GROUND STATIONS SECTION (with Polar Plot, Basic Info, Config & Modules)
+            // =========================================================================
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                spacing: 10
+
+                Label {
+                    text: qsTr("Ground Stations:")
+                    font.bold: true
+                    font.pixelSize: 13
+                    color: detailsRoot.lightMode ? "#1a1b1e" : "#e9ecef"
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Compact Session Correlation Selector (one correlation module for the session)
+                RowLayout {
+                    spacing: 6
+
+                    Label {
+                        text: qsTr("Session Correlation:")
+                        font.pixelSize: 11
+                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                    }
+
+                    ComboBox {
+                        id: corrScriptCombo
+                        Layout.preferredWidth: 165
+                        height: 24
+                        model: detailsRoot.recentCorrelationModulesList ? detailsRoot.recentCorrelationModulesList : []
+                        textRole: "name"
+                        font.pixelSize: 10
+                        enabled: count > 0
+                        displayText: {
+                            if (detailsRoot.selectedCorrelationModulePath && detailsRoot.selectedCorrelationModulePath.length > 0) {
+                                var p = detailsRoot.selectedCorrelationModulePath.replace(/\\/g, "/").split("/")
+                                return p[p.length - 1]
+                            }
+                            return "step_correlation.py"
+                        }
+                        onActivated: (idx) => {
+                            var item = detailsRoot.recentCorrelationModulesList[idx]
+                            if (item && item.path) {
+                                detailsRoot.correlationModuleSelected(item.path)
+                            }
+                        }
+                    }
+
+                    Button {
+                        id: browseCorrPyBtn
+                        height: 24
+                        background: Rectangle {
+                            radius: 5
+                            color: browseCorrPyBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#222736") : (detailsRoot.lightMode ? "#ffffff" : "#141720")
+                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
+                        }
+                        contentItem: Text {
+                            text: "📂 .py"
+                            font.bold: true
+                            font.pixelSize: 10
+                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                            leftPadding: 6; rightPadding: 6
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Browse Python correlation script (.py)")
+                        onClicked: detailsRoot.browseCorrelationModuleRequested()
+                    }
+
+                    ComboBox {
+                        id: excelTableCombo
+                        Layout.preferredWidth: 175
+                        height: 24
+                        model: detailsRoot.recentExcelFilesList ? detailsRoot.recentExcelFilesList : []
+                        textRole: "name"
+                        font.pixelSize: 10
+                        enabled: count > 0
+                        displayText: {
+                            if (detailsRoot.selectedExcelFilePath && detailsRoot.selectedExcelFilePath.length > 0) {
+                                var p = detailsRoot.selectedExcelFilePath.replace(/\\/g, "/").split("/")
+                                return p[p.length - 1]
+                            }
+                            return "attenuation_table.xlsx"
+                        }
+                        onActivated: (idx) => {
+                            var item = detailsRoot.recentExcelFilesList[idx]
+                            if (item && item.path) {
+                                detailsRoot.excelFileSelected(item.path)
+                            }
+                        }
+                    }
+
+                    Button {
+                        id: browseExcelBtn
+                        height: 24
+                        background: Rectangle {
+                            radius: 5
+                            color: browseExcelBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#222736") : (detailsRoot.lightMode ? "#ffffff" : "#141720")
+                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
+                        }
+                        contentItem: Text {
+                            text: "📊 .xlsx"
+                            font.bold: true
+                            font.pixelSize: 10
+                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                            leftPadding: 6; rightPadding: 6
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Browse Excel attenuation lookup table (.xlsx)")
+                        onClicked: detailsRoot.browseExcelFileRequested()
+                    }
+                }
+            }
+
+            // Ground Stations Horizontal Row / Grid (matching mockup)
+            Flow {
+                Layout.fillWidth: true
+                spacing: 14
+
+                Repeater {
+                    model: (detailsRoot.sessionEvent && detailsRoot.sessionEvent.stationPasses) ? detailsRoot.sessionEvent.stationPasses : []
 
                     Rectangle {
-                        Layout.fillWidth: true
-                        height: 1
-                        color: detailsRoot.lightMode ? "#f1f3f5" : "#1e2230"
-                    }
-
-                    // Three-Column Parameter Inputs Grid
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        // 1. Modulation Scheme (QLineEdit + QCompleter)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 260
-                            spacing: 4
-
-                            RowLayout {
-                                spacing: 6
-                                Label {
-                                    text: qsTr("1. Modulation Scheme:")
-                                    font.bold: true
-                                    font.pixelSize: 11
-                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
-                                }
-                                Rectangle {
-                                    height: 18
-                                    width: modBitsBadgeText.implicitWidth + 10
-                                    radius: 4
-                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#102a45"
-                                    border.color: "#339af0"
-                                    border.width: 1
-                                    Text {
-                                        id: modBitsBadgeText
-                                        anchors.centerIn: parent
-                                        text: "m = " + detailsRoot.bitsPerSymbol.toFixed(0) + " bits/sym"
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                        color: "#339af0"
-                                    }
+                        id: stationBreakdownCard
+                        readonly property int stationIndex: index
+                        readonly property string stId: modelData.stationId || ("GS-" + (index + 1))
+                        readonly property string stName: modelData.stationName || ("Station " + (index + 1))
+                        readonly property color stColor: detailsRoot.getStationColor(stId || stName, index)
+                        readonly property var stFullCfg: detailsRoot.findFullStationConfig(stId, stName)
+                        readonly property var stModulesList: (detailsRoot.stationFactorModulesMap && detailsRoot.stationFactorModulesMap[stId])
+                                                              ? detailsRoot.stationFactorModulesMap[stId]
+                                                              : []
+                        readonly property var stSnrEntry: {
+                            if (!detailsRoot.snrProfileData || !detailsRoot.snrProfileData.stations) return null
+                            for (var s = 0; s < detailsRoot.snrProfileData.stations.length; s++) {
+                                var candidate = detailsRoot.snrProfileData.stations[s]
+                                if (candidate.stationId === stId || candidate.stationName === stName) {
+                                    return candidate
                                 }
                             }
+                            if (index < detailsRoot.snrProfileData.stations.length) {
+                                return detailsRoot.snrProfileData.stations[index]
+                            }
+                            return null
+                        }
 
-                            Item {
+                        width: Math.max(430, Math.floor((mainContentCol.width - 14) / 2))
+                        implicitHeight: Math.max(stationCardMainRow.implicitHeight + 28, 210)
+                        radius: 10
+                        color: detailsRoot.lightMode ? "#ffffff" : "#141720"
+                        border.color: detailsRoot.lightMode ? "#dee2e6" : "#222736"
+                        border.width: 1
+
+                        RowLayout {
+                            id: stationCardMainRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 14
+                            spacing: 14
+
+                            // LEFT COLUMN: Station Name, Config Pills, and Modules Pills
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                height: 32
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 8
 
-                                TextField {
-                                    id: modInput
-                                    anchors.fill: parent
-                                    anchors.rightMargin: 28
-                                    text: detailsRoot.selectedModulation
-                                    placeholderText: qsTr("Type or pick (e.g. QPSK, 16APSK)...")
+                                // 1. Station Name + Edit Config & JSON Preview Buttons
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Rectangle {
+                                        width: 8; height: 8; radius: 4
+                                        color: stationBreakdownCard.stColor
+                                    }
+
+                                    Label {
+                                        text: stationBreakdownCard.stName
+                                        font.bold: true
+                                        font.pixelSize: 14
+                                        color: detailsRoot.lightMode ? "#212529" : "#f1f3f5"
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Button {
+                                        id: editStBtn
+                                        height: 22
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: editStBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#e7f5ff" : "#182842")
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#1c202c")
+                                            border.color: editStBtn.hovered ? "#339af0" : (detailsRoot.lightMode ? "#dee2e6" : "#2d3345")
+                                        }
+                                        contentItem: Text {
+                                            text: qsTr("✏️ Config")
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            color: editStBtn.hovered ? "#339af0" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                            leftPadding: 6; rightPadding: 6
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: qsTr("Edit ground station RF configuration and modules")
+                                        onClicked: detailsRoot.editGroundStationConfigRequested(stationBreakdownCard.stId)
+                                    }
+
+                                    Button {
+                                        id: stJsonBtn
+                                        height: 22
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: stJsonBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#252b3b")
+                                                   : "transparent"
+                                            border.color: detailsRoot.lightMode ? "#dee2e6" : "#2d3345"
+                                        }
+                                        contentItem: Text {
+                                            text: "{ }"
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
+                                            leftPadding: 5; rightPadding: 5
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: qsTr("Preview Station Session Input JSON")
+                                        onClicked: detailsRoot.previewStationInputJsonRequested(stationBreakdownCard.stId, stationBreakdownCard.stName)
+                                    }
+                                }
+
+                                // 2. "Config" Label + Station RF Config Pills
+                                Label {
+                                    text: qsTr("Config")
                                     font.pixelSize: 12
-                                    font.bold: true
-                                    color: detailsRoot.lightMode ? "#212529" : "#ffffff"
-                                    selectByMouse: true
-                                    background: Rectangle {
+                                    color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                }
+
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Repeater {
+                                        model: {
+                                            var cfg = stationBreakdownCard.stFullCfg
+                                            var badges = []
+                                            var band = (cfg && cfg.operatingBand) ? cfg.operatingBand : "C-band"
+                                            var gain = (cfg && cfg.antennaGain !== undefined) ? Number(cfg.antennaGain) : 42.0
+                                            var gOt = (cfg && cfg.gOverT !== undefined) ? Number(cfg.gOverT) : 17.5
+                                            var minEl = (cfg && cfg.minElevation !== undefined) ? Number(cfg.minElevation) : 5.0
+                                            badges.push(band)
+                                            badges.push("G=" + gain.toFixed(1).replace(/\.0$/, "") + " dBi")
+                                            badges.push("G/T=" + gOt.toFixed(1) + " dB/K")
+                                            badges.push("El≥" + minEl.toFixed(0) + "°")
+                                            return badges
+                                        }
+
+                                        Rectangle {
+                                            height: 26
+                                            width: stCfgPillText.implicitWidth + 16
+                                            radius: 6
+                                            color: stCfgPillMouse.containsMouse
+                                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#232838")
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#181c26")
+                                            border.color: stCfgPillMouse.containsMouse
+                                                          ? "#339af0"
+                                                          : (detailsRoot.lightMode ? "#ced4da" : "#262b3a")
+                                            border.width: 1
+
+                                            Text {
+                                                id: stCfgPillText
+                                                anchors.centerIn: parent
+                                                text: modelData
+                                                font.pixelSize: 11
+                                                color: detailsRoot.lightMode ? "#212529" : "#e9ecef"
+                                            }
+
+                                            MouseArea {
+                                                id: stCfgPillMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: detailsRoot.editGroundStationConfigRequested(stationBreakdownCard.stId)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 3. "Modules:" Label + Add Module Controls
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Label {
+                                        text: qsTr("Modules:")
+                                        font.pixelSize: 12
+                                        color: detailsRoot.lightMode ? "#6c757d" : "#909296"
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    ComboBox {
+                                        id: stAddModCombo
+                                        Layout.preferredWidth: 130
+                                        height: 22
+                                        model: detailsRoot.recentModulesList ? detailsRoot.recentModulesList : []
+                                        textRole: "name"
+                                        font.pixelSize: 10
+                                        enabled: count > 0
+                                        displayText: currentIndex >= 0 && count > 0
+                                                     ? model[currentIndex].name
+                                                     : qsTr("Recent .py...")
+                                    }
+
+                                    Button {
+                                        id: stQuickAddBtn
+                                        height: 22
+                                        enabled: stAddModCombo.count > 0 && stAddModCombo.currentIndex >= 0
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: stQuickAddBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#d0ebff" : "#1c3352")
+                                                   : (detailsRoot.lightMode ? "#e7f5ff" : "#14233c")
+                                            border.color: "#339af0"
+                                        }
+                                        contentItem: Text {
+                                            text: qsTr("+ Add")
+                                            font.bold: true
+                                            font.pixelSize: 10
+                                            color: "#339af0"
+                                            leftPadding: 6; rightPadding: 6
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        onClicked: {
+                                            var item = detailsRoot.recentModulesList[stAddModCombo.currentIndex]
+                                            if (item && item.path) {
+                                                detailsRoot.addRecentStationModuleRequested(stationBreakdownCard.stId, item.path)
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        id: stBrowsePyBtn
+                                        height: 22
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: stBrowsePyBtn.hovered
+                                                   ? (detailsRoot.lightMode ? "#e9ecef" : "#252b3b")
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#181c26")
+                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#2d3345"
+                                        }
+                                        contentItem: Text {
+                                            text: "📂"
+                                            font.pixelSize: 10
+                                            leftPadding: 5; rightPadding: 5
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: qsTr("Browse Python factor module (.py) for this station")
+                                        onClicked: detailsRoot.browseStationModuleRequested(stationBreakdownCard.stId)
+                                    }
+                                }
+
+                                // 4. Modules Pills Flow (FSPL Default + Attachable Factor Modules)
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    // Default Locked FSPL Pill (Always On)
+                                    Rectangle {
+                                        height: 28
+                                        width: fsplPillText.implicitWidth + 18
                                         radius: 6
-                                        color: detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"
-                                        border.color: modInput.activeFocus ? "#339af0" : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
+                                        color: detailsRoot.lightMode ? "#e7f5ff" : "#152236"
+                                        border.color: "#339af0"
                                         border.width: 1
-                                    }
 
-                                    onTextChanged: {
-                                        if (text !== detailsRoot.selectedModulation) {
-                                            detailsRoot.selectedModulation = text
-                                            detailsRoot.bitsPerSymbol = detailsRoot.deriveBitsPerSymbol(text)
+                                        Text {
+                                            id: fsplPillText
+                                            anchors.centerIn: parent
+                                            text: "FSPL (Free Space Path Loss)"
+                                            font.pixelSize: 11
+                                            color: detailsRoot.lightMode ? "#1864ab" : "#e9ecef"
                                         }
                                     }
 
-                                    onActiveFocusChanged: {
-                                        if (activeFocus) {
-                                            modCompleterPopup.open()
-                                        }
-                                    }
-                                }
+                                    // Attachable Station Python Factor Module Pills
+                                    Repeater {
+                                        model: stationBreakdownCard.stModulesList
 
-                                Button {
-                                    id: modDropBtn
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    width: 26
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: modDropBtn.hovered ? (detailsRoot.lightMode ? "#e9ecef" : "#2c2e33") : "transparent"
-                                    }
-                                    contentItem: Text {
-                                        text: "▼"
-                                        font.pixelSize: 9
-                                        color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    onClicked: {
-                                        if (modCompleterPopup.opened) {
-                                            modCompleterPopup.close()
-                                        } else {
-                                            modInput.forceActiveFocus()
-                                            modCompleterPopup.open()
-                                        }
-                                    }
-                                }
+                                        Rectangle {
+                                            id: factorPill
+                                            readonly property bool isOn: modelData.enabled === true
+                                            readonly property bool hasOut: (modelData.outputJson && modelData.outputJson.length > 0) || (modelData.errorText && modelData.errorText.length > 0)
+                                            height: 28
+                                            width: factorPillRow.implicitWidth + 16
+                                            radius: 6
+                                            color: isOn
+                                                   ? (modelData.status === "error"
+                                                      ? (detailsRoot.lightMode ? "#fff5f5" : "#2b1518")
+                                                      : (detailsRoot.lightMode ? "#ebfbee" : "#14291d"))
+                                                   : (detailsRoot.lightMode ? "#f8f9fa" : "#181c26")
+                                            border.color: isOn
+                                                          ? (modelData.status === "error" ? "#fa5252" : "#40c057")
+                                                          : (detailsRoot.lightMode ? "#ced4da" : "#262b3a")
+                                            border.width: 1
 
-                                Popup {
-                                    id: modCompleterPopup
-                                    y: parent.height + 4
-                                    width: Math.max(parent.width, 240)
-                                    height: Math.min(260, completerCol.implicitHeight + 12)
-                                    padding: 6
-                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-                                    background: Rectangle {
-                                        radius: 8
-                                        color: detailsRoot.lightMode ? "#ffffff" : "#1c1f26"
-                                        border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                        border.width: 1
-                                    }
+                                            RowLayout {
+                                                id: factorPillRow
+                                                anchors.centerIn: parent
+                                                spacing: 5
 
-                                    ScrollView {
-                                        anchors.fill: parent
-                                        clip: true
-                                        ColumnLayout {
-                                            id: completerCol
-                                            width: parent.width
-                                            spacing: 2
-
-                                            Repeater {
-                                                model: {
-                                                    var query = modInput.text.trim().toUpperCase()
-                                                    var matches = []
-                                                    for (var i = 0; i < detailsRoot.modulationPresets.length; i++) {
-                                                        var p = detailsRoot.modulationPresets[i]
-                                                        if (query === "" || p.name.toUpperCase().indexOf(query) !== -1) {
-                                                            matches.push(p)
-                                                        }
+                                                // Status dot / toggle indicator
+                                                Rectangle {
+                                                    width: 6
+                                                    height: 6
+                                                    radius: 3
+                                                    color: {
+                                                        if (!factorPill.isOn) return detailsRoot.lightMode ? "#adb5bd" : "#495057"
+                                                        if (modelData.status === "running") return "#339af0"
+                                                        if (modelData.status === "error") return "#fa5252"
+                                                        return "#40c057"
                                                     }
-                                                    return matches.length > 0 ? matches : detailsRoot.modulationPresets
                                                 }
 
-                                                delegate: Rectangle {
-                                                    Layout.fillWidth: true
-                                                    height: 28
-                                                    radius: 4
-                                                    color: modPresetMouse.containsMouse ? (detailsRoot.lightMode ? "#e7f5ff" : "#1e293b") : "transparent"
-
-                                                    RowLayout {
-                                                        anchors.fill: parent
-                                                        anchors.leftMargin: 8
-                                                        anchors.rightMargin: 8
-                                                        spacing: 8
-
-                                                        Text {
-                                                            text: modelData.name
-                                                            font.bold: true
-                                                            font.pixelSize: 12
-                                                            color: detailsRoot.lightMode ? "#1a1b1e" : "#f1f3f5"
-                                                        }
-                                                        Item { Layout.fillWidth: true }
-                                                        Text {
-                                                            text: "log₂(M)=" + modelData.bits + " bits/sym"
-                                                            font.pixelSize: 10
-                                                            color: detailsRoot.lightMode ? "#6c757d" : "#94a3b8"
-                                                        }
-                                                    }
+                                                // Module Display Name (Click to Toggle ON/OFF)
+                                                Text {
+                                                    text: detailsRoot.formatModuleDisplayName(modelData.name, modelData.factorName)
+                                                          + (modelData.status === "running" ? " (⏳)" : "")
+                                                    font.pixelSize: 11
+                                                    font.bold: factorPill.isOn
+                                                    color: factorPill.isOn
+                                                           ? (detailsRoot.lightMode ? "#2b8a3e" : "#8ce99a")
+                                                           : (detailsRoot.lightMode ? "#495057" : "#e9ecef")
 
                                                     MouseArea {
-                                                        id: modPresetMouse
                                                         anchors.fill: parent
-                                                        hoverEnabled: true
                                                         cursorShape: Qt.PointingHandCursor
                                                         onClicked: {
-                                                            modInput.text = modelData.name
-                                                            detailsRoot.selectedModulation = modelData.name
-                                                            detailsRoot.bitsPerSymbol = modelData.bits
-                                                            modCompleterPopup.close()
+                                                            detailsRoot.toggleStationModuleEnabledRequested(
+                                                                stationBreakdownCard.stId,
+                                                                index,
+                                                                !factorPill.isOn
+                                                            )
                                                         }
+                                                    }
+                                                }
+
+                                                // Preview Factor Output JSON mini button
+                                                Button {
+                                                    visible: factorPill.hasOut
+                                                    width: 18
+                                                    height: 18
+                                                    padding: 0
+                                                    background: Rectangle {
+                                                        radius: 3
+                                                        color: parent.hovered ? (detailsRoot.lightMode ? "#dee2e6" : "#2c3347") : "transparent"
+                                                    }
+                                                    contentItem: Text {
+                                                        text: "{}"
+                                                        font.bold: true
+                                                        font.pixelSize: 9
+                                                        color: "#339af0"
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr("Inspect Factor Output JSON")
+                                                    onClicked: {
+                                                        var content = (modelData.outputJson && modelData.outputJson.length > 0)
+                                                                      ? modelData.outputJson
+                                                                      : ("// Module Error:\n" + (modelData.errorText || "No output"))
+                                                        var passIdx = detailsRoot.sessionEvent ? detailsRoot.sessionEvent.passIndex : 1
+                                                        detailsRoot.previewJsonModalRequested(
+                                                            qsTr("Factor Output JSON — ") + stationBreakdownCard.stName + " (" + modelData.name + ")",
+                                                            modelData.factorName
+                                                                ? ("factor_name: " + modelData.factorName + (modelData.units ? (" [" + modelData.units + "]") : ""))
+                                                                : qsTr("Python factor calculation output"),
+                                                            content,
+                                                            modelData.name.replace(/\.py$/i, "") + "_" + stationBreakdownCard.stId + "_pass_" + passIdx + ".json"
+                                                        )
+                                                    }
+                                                }
+
+                                                // Remove Factor Module button
+                                                Button {
+                                                    width: 16
+                                                    height: 16
+                                                    padding: 0
+                                                    background: Rectangle {
+                                                        radius: 3
+                                                        color: parent.hovered ? "#c92a2a" : "transparent"
+                                                    }
+                                                    contentItem: Text {
+                                                        text: "✕"
+                                                        font.bold: true
+                                                        font.pixelSize: 9
+                                                        color: parent.hovered ? "#ffffff" : (detailsRoot.lightMode ? "#868e96" : "#6c757d")
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr("Remove module from station")
+                                                    onClicked: {
+                                                        detailsRoot.removeStationModuleRequested(stationBreakdownCard.stId, index)
                                                     }
                                                 }
                                             }
@@ -2248,434 +1675,187 @@ Rectangle {
                                     }
                                 }
                             }
-                        }
 
-                        // 2. Roll-off Factor (alpha)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 230
-                            spacing: 4
-
-                            RowLayout {
+                            // RIGHT COLUMN: Polar Skyplot (Az/El) + Pass Visibility Time Window Underneath
+                            ColumnLayout {
+                                Layout.alignment: Qt.AlignTop
                                 spacing: 6
+
+                                Rectangle {
+                                    Layout.preferredWidth: 148
+                                    Layout.preferredHeight: 148
+                                    Layout.minimumWidth: 148
+                                    Layout.minimumHeight: 148
+                                    Layout.alignment: Qt.AlignHCenter
+                                    radius: 8
+                                    color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1017"
+                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#222736"
+                                    border.width: 1
+
+                                    Canvas {
+                                        id: stationPolarCanvas
+                                        anchors.fill: parent
+                                        antialiasing: true
+
+                                        property var stSnr: stationBreakdownCard.stSnrEntry
+                                        property color passColor: stationBreakdownCard.stColor
+                                        property int hoverIdx: detailsRoot.hoveredSampleIndex
+
+                                        onStSnrChanged: requestPaint()
+                                        onHoverIdxChanged: requestPaint()
+                                        onAvailableChanged: {
+                                            if (available) {
+                                                requestPaint()
+                                            }
+                                        }
+                                        onWidthChanged: requestPaint()
+                                        onHeightChanged: requestPaint()
+
+                                        Connections {
+                                            target: detailsRoot
+                                            function onSnrProfileDataChanged() { stationPolarCanvas.requestPaint() }
+                                            function onLightModeChanged() { stationPolarCanvas.requestPaint() }
+                                            function onVisibleChanged() {
+                                                if (detailsRoot.visible) {
+                                                    stationPolarCanvas.requestPaint()
+                                                }
+                                            }
+                                        }
+
+                                        onPaint: {
+                                            var ctx = getContext("2d")
+                                            var w = width
+                                            var h = height
+                                            ctx.clearRect(0, 0, w, h)
+
+                                            var cx = w / 2
+                                            var cy = h / 2 + 5
+                                            var maxR = 52
+
+                                            var isHoverValid = (hoverIdx >= 0 && stSnr && stSnr.isVisible && hoverIdx < stSnr.isVisible.length && stSnr.isVisible[hoverIdx])
+
+                                            // Title / Live Hover Readout
+                                            ctx.fillStyle = isHoverValid ? "#ffd43b" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                            ctx.font = isHoverValid ? "bold 8px monospace" : "bold 8.5px sans-serif"
+                                            ctx.textAlign = "center"
+                                            if (isHoverValid) {
+                                                var curAz = Math.round(Number(stSnr.azimuthDeg[hoverIdx]) || 0)
+                                                var curEl = Math.round(Number(stSnr.elevationDeg[hoverIdx]) || 0)
+                                                ctx.fillText("Az " + curAz + "°  El " + curEl + "°", cx, 11)
+                                            } else {
+                                                ctx.fillText("Polar Skyplot (Az/El)", cx, 11)
+                                            }
+
+                                            // Concentric elevation circles: 0° (outer), 30°, 60°
+                                            ctx.strokeStyle = detailsRoot.lightMode ? "#dee2e6" : "#1e2638"
+                                            ctx.lineWidth = 1
+                                            var rings = [1.0, 2.0 / 3.0, 1.0 / 3.0]
+                                            for (var rIdx = 0; rIdx < rings.length; rIdx++) {
+                                                ctx.beginPath()
+                                                ctx.arc(cx, cy, maxR * rings[rIdx], 0, 2 * Math.PI)
+                                                ctx.stroke()
+                                            }
+
+                                            // Elevation degree labels along North axis
+                                            ctx.fillStyle = detailsRoot.lightMode ? "#adb5bd" : "#495057"
+                                            ctx.font = "6.5px sans-serif"
+                                            ctx.textAlign = "left"
+                                            ctx.fillText("30°", cx + 2, cy - maxR * (2.0 / 3.0) + 6)
+                                            ctx.fillText("60°", cx + 2, cy - maxR * (1.0 / 3.0) + 6)
+
+                                            // Crosshair spokes (N-S, E-W)
+                                            ctx.beginPath()
+                                            ctx.moveTo(cx - maxR, cy); ctx.lineTo(cx + maxR, cy)
+                                            ctx.moveTo(cx, cy - maxR); ctx.lineTo(cx, cy + maxR)
+                                            ctx.stroke()
+
+                                            // Compass labels (N, E, S, W)
+                                            ctx.fillStyle = detailsRoot.lightMode ? "#6c757d" : "#868e96"
+                                            ctx.font = "bold 8px monospace"
+                                            ctx.textAlign = "center"
+                                            ctx.textBaseline = "middle"
+                                            ctx.fillText("N", cx, cy - maxR - 6)
+                                            ctx.fillText("S", cx, cy + maxR + 7)
+                                            ctx.fillText("E", cx + maxR + 6, cy)
+                                            ctx.fillText("W", cx - maxR - 6, cy)
+                                            ctx.textBaseline = "alphabetic"
+
+                                            // Plot satellite pass trajectory if azimuthDeg & elevationDeg are available
+                                            if (stSnr && stSnr.elevationDeg && stSnr.azimuthDeg && stSnr.isVisible) {
+                                                var nPts = stSnr.elevationDeg.length
+                                                ctx.beginPath()
+                                                ctx.strokeStyle = passColor
+                                                ctx.lineWidth = 2.0
+                                                var started = false
+                                                var prevVis = false
+                                                var firstX = 0, firstY = 0, lastX = 0, lastY = 0
+
+                                                for (var i = 0; i < nPts; i++) {
+                                                    if (!stSnr.isVisible[i]) {
+                                                        prevVis = false
+                                                        continue
+                                                    }
+                                                    var el = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[i]) || 0.0))
+                                                    var azDeg = ((Number(stSnr.azimuthDeg[i]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                    // 0 deg = North (top), 90 deg = East (right), clockwise
+                                                    var azRad = (azDeg - 90.0) * (Math.PI / 180.0)
+                                                    var r = maxR * (1.0 - el / 90.0)
+                                                    var px = cx + r * Math.cos(azRad)
+                                                    var py = cy + r * Math.sin(azRad)
+
+                                                    if (!started || !prevVis) {
+                                                        ctx.moveTo(px, py)
+                                                        if (!started) {
+                                                            firstX = px; firstY = py
+                                                            started = true
+                                                        }
+                                                    } else {
+                                                        ctx.lineTo(px, py)
+                                                    }
+                                                    lastX = px; lastY = py
+                                                    prevVis = true
+                                                }
+                                                if (started) {
+                                                    ctx.stroke()
+
+                                                    // AOS (Green) & LOS (Red) dots
+                                                    ctx.fillStyle = "#51cf66"
+                                                    ctx.beginPath(); ctx.arc(firstX, firstY, 3.2, 0, 2 * Math.PI); ctx.fill()
+                                                    ctx.strokeStyle = "#ffffff"
+                                                    ctx.lineWidth = 0.8
+                                                    ctx.stroke()
+
+                                                    ctx.fillStyle = "#ff6b6b"
+                                                    ctx.beginPath(); ctx.arc(lastX, lastY, 3.2, 0, 2 * Math.PI); ctx.fill()
+                                                    ctx.stroke()
+                                                }
+
+                                                // Hovered sample marker on polar plot
+                                                if (isHoverValid && hoverIdx < nPts) {
+                                                    var hEl = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[hoverIdx]) || 0.0))
+                                                    var hAzDeg = ((Number(stSnr.azimuthDeg[hoverIdx]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                    var hAzRad = (hAzDeg - 90.0) * (Math.PI / 180.0)
+                                                    var hR = maxR * (1.0 - hEl / 90.0)
+                                                    var hx = cx + hR * Math.cos(hAzRad)
+                                                    var hy = cy + hR * Math.sin(hAzRad)
+                                                    ctx.fillStyle = "#ffd43b"
+                                                    ctx.beginPath(); ctx.arc(hx, hy, 4.2, 0, 2 * Math.PI); ctx.fill()
+                                                    ctx.strokeStyle = "#ffffff"
+                                                    ctx.lineWidth = 1.0
+                                                    ctx.stroke()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // AOS -> LOS time range below Polar Skyplot (matching mockup: 22:23:04 -> 22:26:45)
                                 Label {
-                                    text: qsTr("2. Roll-off Factor (α):")
-                                    font.bold: true
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: (modelData.aosUtc || "") + " → " + (modelData.losUtc || "")
                                     font.pixelSize: 11
-                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
-                                }
-                                Rectangle {
-                                    height: 18
-                                    width: alphaBadgeText.implicitWidth + 10
-                                    radius: 4
-                                    color: detailsRoot.lightMode ? "#fff4e6" : "#382405"
-                                    border.color: "#f59f00"
-                                    border.width: 1
-                                    Text {
-                                        id: alphaBadgeText
-                                        anchors.centerIn: parent
-                                        text: "α = " + detailsRoot.rolloffAlpha.toFixed(2)
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                        color: "#f59f00"
-                                    }
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Repeater {
-                                    model: [0.20, 0.25, 0.35]
-                                    delegate: Button {
-                                        id: alphaPillBtn
-                                        text: modelData.toFixed(2)
-                                        Layout.preferredWidth: 44
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 6
-                                            color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001
-                                                   ? (detailsRoot.lightMode ? "#f59f00" : "#e67700")
-                                                   : (alphaPillBtn.hovered ? (detailsRoot.lightMode ? "#f1f3f5" : "#2c2e33") : (detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"))
-                                            border.color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001 ? "#f59f00" : (detailsRoot.lightMode ? "#ced4da" : "#373a40")
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: alphaPillBtn.text
-                                            font.bold: true
-                                            font.pixelSize: 11
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: Math.abs(detailsRoot.rolloffAlpha - modelData) < 0.001 ? "#ffffff" : (detailsRoot.lightMode ? "#495057" : "#adb5bd")
-                                        }
-                                        onClicked: detailsRoot.rolloffAlpha = modelData
-                                    }
-                                }
-
-                                RowLayout {
-                                    spacing: 2
-                                    Button {
-                                        text: "−"
-                                        Layout.preferredWidth: 26
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "−"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                        }
-                                        onClicked: detailsRoot.rolloffAlpha = Math.max(0.05, Math.round((detailsRoot.rolloffAlpha - 0.05) * 100) / 100)
-                                    }
-                                    Button {
-                                        text: "+"
-                                        Layout.preferredWidth: 26
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "+"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                        }
-                                        onClicked: detailsRoot.rolloffAlpha = Math.min(0.50, Math.round((detailsRoot.rolloffAlpha + 0.05) * 100) / 100)
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3. Code Efficiency Coef (Gamma)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 220
-                            spacing: 4
-
-                            RowLayout {
-                                spacing: 6
-                                Label {
-                                    text: qsTr("3. Code Efficiency Coef (Γ):")
-                                    font.bold: true
-                                    font.pixelSize: 11
-                                    color: detailsRoot.lightMode ? "#343a40" : "#ced4da"
-                                }
-                                Rectangle {
-                                    height: 18
-                                    width: gammaBadgeText.implicitWidth + 10
-                                    radius: 4
-                                    color: detailsRoot.lightMode ? "#f8f0fc" : "#2c1736"
-                                    border.color: "#da77f2"
-                                    border.width: 1
-                                    Text {
-                                        id: gammaBadgeText
-                                        anchors.centerIn: parent
-                                        text: "Γ = " + detailsRoot.codeEfficiencyCoef.toFixed(2)
-                                        font.pixelSize: 10
-                                        font.bold: true
-                                        color: "#da77f2"
-                                    }
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 32
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#f8f9fa" : "#1a1b1e"
-                                    border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                    border.width: 1
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: detailsRoot.codeEfficiencyCoef.toFixed(2)
-                                        font.bold: true
-                                        font.pixelSize: 13
-                                        font.family: "monospace"
-                                        color: detailsRoot.lightMode ? "#212529" : "#ffffff"
-                                    }
-                                }
-
-                                RowLayout {
-                                    spacing: 2
-                                    Button {
-                                        text: "−"
-                                        Layout.preferredWidth: 26
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "−"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                        }
-                                        onClicked: detailsRoot.codeEfficiencyCoef = Math.max(0.10, Math.round((detailsRoot.codeEfficiencyCoef - 0.05) * 100) / 100)
-                                    }
-                                    Button {
-                                        text: "+"
-                                        Layout.preferredWidth: 26
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "+"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                        }
-                                        onClicked: detailsRoot.codeEfficiencyCoef = Math.min(10.00, Math.round((detailsRoot.codeEfficiencyCoef + 0.05) * 100) / 100)
-                                    }
-                                    Button {
-                                        text: "1.0"
-                                        Layout.preferredWidth: 32
-                                        height: 32
-                                        background: Rectangle {
-                                            radius: 4
-                                            color: detailsRoot.lightMode ? "#e9ecef" : "#25262b"
-                                            border.color: detailsRoot.lightMode ? "#ced4da" : "#373a40"
-                                            border.width: 1
-                                        }
-                                        contentItem: Text {
-                                            text: "1.0"
-                                            font.bold: true
-                                            font.pixelSize: 10
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: detailsRoot.lightMode ? "#495057" : "#c1c2c5"
-                                        }
-                                        onClicked: detailsRoot.codeEfficiencyCoef = 1.00
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Formula Banner & Live Derivations Card
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: formulaInnerCol.implicitHeight + 16
-                        Layout.preferredHeight: implicitHeight
-                        radius: 8
-                        color: detailsRoot.lightMode ? "#f8f9fa" : "#0d1117"
-                        border.color: detailsRoot.lightMode ? "#e9ecef" : "#30363d"
-                        border.width: 1
-
-                        ColumnLayout {
-                            id: formulaInnerCol
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Text {
-                                    text: "📐 Key Shannon-Hartley AMC Formula:"
-                                    font.bold: true
-                                    font.pixelSize: 11
-                                    color: detailsRoot.lightMode ? "#495057" : "#8b949e"
-                                }
-
-                                Item { Layout.fillWidth: true }
-
-                                Rectangle {
-                                    height: 22
-                                    width: formulaFormulaText.implicitWidth + 14
-                                    radius: 4
-                                    color: detailsRoot.lightMode ? "#e7f5ff" : "#161b22"
-                                    border.color: "#339af0"
-                                    border.width: 1
-                                    Text {
-                                        id: formulaFormulaText
-                                        anchors.centerIn: parent
-                                        text: "r_max = [ 1 / (bits_per_symbol · (1 + α)) ] · log₂( 1 + 10^(SNR_dB / 10) / Code_efficiency_coef )"
-                                        font.family: "Consolas, 'Courier New', monospace"
-                                        font.bold: true
-                                        font.pixelSize: 10
-                                        color: "#339af0"
-                                    }
-                                }
-                            }
-
-                            // Metrics Badges Row
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                // Peak r_max
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
-                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            text: "Peak r_max"
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                        Text {
-                                            text: detailsRoot.derivedPeakRMax.toFixed(3)
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            font.family: "monospace"
-                                            color: "#fab005"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
-                                }
-
-                                // Mean r_max
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
-                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            text: "Mean r_max"
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                        Text {
-                                            text: detailsRoot.derivedMeanRMax.toFixed(3)
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            font.family: "monospace"
-                                            color: "#ffd43b"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
-                                }
-
-                                // Spectral Efficiency
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
-                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            text: "Spectral Efficiency (η)"
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                        Text {
-                                            text: detailsRoot.derivedSpectralEfficiency.toFixed(2) + " bps/Hz"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            font.family: "monospace"
-                                            color: "#51cf66"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
-                                }
-
-                                // Symbol Rate
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
-                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            text: "Symbol Rate (Rs)"
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                        Text {
-                                            text: Math.round(detailsRoot.derivedSymbolRateKbaud) + " kbaud"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            font.family: "monospace"
-                                            color: "#339af0"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
-                                }
-
-                                // Peak Bitrate
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: 6
-                                    color: detailsRoot.lightMode ? "#ffffff" : "#161b22"
-                                    border.color: detailsRoot.lightMode ? "#dee2e6" : "#21262d"
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            text: "Est. Peak Bitrate"
-                                            font.pixelSize: 9
-                                            color: detailsRoot.lightMode ? "#6c757d" : "#8b949e"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                        Text {
-                                            text: detailsRoot.derivedPeakBitrateMbps.toFixed(2) + " Mbps"
-                                            font.bold: true
-                                            font.pixelSize: 13
-                                            font.family: "monospace"
-                                            color: "#ff922b"
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
+                                    font.family: "monospace"
+                                    color: detailsRoot.lightMode ? "#495057" : "#adb5bd"
                                 }
                             }
                         }
@@ -2683,34 +1863,5 @@ Rectangle {
                 }
             }
         }
-    }
-
-    function syncCorrelationCombos() {
-        if (recentCorrelationModulesList && selectedCorrelationModulePath) {
-            for (var i = 0; i < recentCorrelationModulesList.length; i++) {
-                if (recentCorrelationModulesList[i].path === selectedCorrelationModulePath) {
-                    corrModuleCombo.currentIndex = i
-                    break
-                }
-            }
-        }
-        if (recentExcelFilesList && selectedExcelFilePath) {
-            for (var j = 0; j < recentExcelFilesList.length; j++) {
-                if (recentExcelFilesList[j].path === selectedExcelFilePath) {
-                    excelFileCombo.currentIndex = j
-                    break
-                }
-            }
-        }
-    }
-
-    onSelectedCorrelationModulePathChanged: syncCorrelationCombos()
-    onSelectedExcelFilePathChanged: syncCorrelationCombos()
-    onRecentCorrelationModulesListChanged: syncCorrelationCombos()
-    onRecentExcelFilesListChanged: syncCorrelationCombos()
-
-    onSnrProfileDataChanged: {
-        hoveredSampleIndex = -1
-        embeddedPlotCanvas.requestPaint()
     }
 }

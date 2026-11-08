@@ -6,6 +6,7 @@ Rectangle {
     id: planningSidebarRoot
 
     property var satellitesModel: null
+    property var satellitesList: []
     property var stationsModel: null
     property string selectedSatelliteId: ""
     property var passResult: null
@@ -87,13 +88,17 @@ Rectangle {
                     id: satCombo
                     Layout.fillWidth: true
                     height: 32
-                    model: planningSidebarRoot.satellitesModel
+                    model: (planningSidebarRoot.satellitesList && planningSidebarRoot.satellitesList.length > 0)
+                           ? planningSidebarRoot.satellitesList
+                           : planningSidebarRoot.satellitesModel
                     textRole: "name"
 
                     currentIndex: {
-                        if (!planningSidebarRoot.satellitesModel) return 0
-                        for (var i = 0; i < planningSidebarRoot.satellitesModel.count; i++) {
-                            if (planningSidebarRoot.satellitesModel.get(i).satId === planningSidebarRoot.selectedSatelliteId) {
+                        var list = (planningSidebarRoot.satellitesList && planningSidebarRoot.satellitesList.length > 0)
+                                   ? planningSidebarRoot.satellitesList
+                                   : []
+                        for (var i = 0; i < list.length; i++) {
+                            if (list[i].satId === planningSidebarRoot.selectedSatelliteId) {
                                 return i
                             }
                         }
@@ -101,8 +106,11 @@ Rectangle {
                     }
 
                     onActivated: function(index) {
-                        if (planningSidebarRoot.satellitesModel && index >= 0 && index < planningSidebarRoot.satellitesModel.count) {
-                            var sId = planningSidebarRoot.satellitesModel.get(index).satId
+                        var list = (planningSidebarRoot.satellitesList && planningSidebarRoot.satellitesList.length > 0)
+                                   ? planningSidebarRoot.satellitesList
+                                   : []
+                        if (index >= 0 && index < list.length) {
+                            var sId = list[index].satId
                             planningSidebarRoot.satelliteChanged(sId)
                         }
                     }

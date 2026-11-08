@@ -143,8 +143,23 @@ Item {
 
                     text: formatValue(root.value)
 
+                    onTextEdited: {
+                        var cleaned = textInput.text.replace(/,/g, ".").replace(/[^0-9.-]/g, "")
+                        var parsed = parseFloat(cleaned)
+                        if (!isNaN(parsed)) {
+                            var clamped = Math.min(root.to, Math.max(root.from, parsed))
+                            if (root.decimals > 0) {
+                                var factor = Math.pow(10, root.decimals)
+                                clamped = Math.round(clamped * factor) / factor
+                            }
+                            root.isEstimated = false
+                            root.value = clamped
+                            root.valueModified(clamped)
+                        }
+                    }
+
                     onEditingFinished: {
-                        var parsed = parseFloat(textInput.text.replace(/[^0-9.-]/g, ""))
+                        var parsed = parseFloat(textInput.text.replace(/,/g, ".").replace(/[^0-9.-]/g, ""))
                         if (!isNaN(parsed)) {
                             root.isEstimated = false
                             root.setValueClamped(parsed)
