@@ -53,6 +53,21 @@ Rectangle {
                                        ? Number(targetSatelliteData.channelBandwidthKhz)
                                        : ((snrProfileData && snrProfileData.channelBandwidthKhz) ? snrProfileData.channelBandwidthKhz : 20000.0)
 
+    property var activeCodeRateTable: (targetSatelliteData && targetSatelliteData.codeRateTable && targetSatelliteData.codeRateTable.length > 0)
+                                      ? targetSatelliteData.codeRateTable
+                                      : [
+                                          { name: "R1", rate: 0.910, hw: "0" },
+                                          { name: "R2", rate: 0.830, hw: "1" },
+                                          { name: "R3", rate: 0.700, hw: "2" },
+                                          { name: "R4", rate: 0.570, hw: "3" },
+                                          { name: "R5", rate: 0.410, hw: "4" },
+                                          { name: "R6", rate: 0.285, hw: "5" },
+                                          { name: "R7", rate: 0.190, hw: "6" }
+                                      ]
+    property string activeCodeRateRegister: (targetSatelliteData && targetSatelliteData.codeRateRegister)
+                                            ? targetSatelliteData.codeRateRegister
+                                            : "fpgatrx/code_rate"
+
     readonly property var modulationPresets: [
         { name: "BPSK", bits: 1 },
         { name: "QPSK", bits: 2 },
@@ -186,6 +201,23 @@ Rectangle {
         return totalBits / (8.0 * 1e6)
     }
 
+    function getOptimalTierForRMax(rMaxVal) {
+        var table = activeCodeRateTable
+        if (!table || table.length === 0) return null
+        var sorted = []
+        for (var i = 0; i < table.length; i++) {
+            sorted.push(table[i])
+        }
+        sorted.sort(function(a, b) { return Number(b.rate) - Number(a.rate) })
+
+        for (var j = 0; j < sorted.length; j++) {
+            if (Number(sorted[j].rate) <= rMaxVal) {
+                return sorted[j]
+            }
+        }
+        return sorted[sorted.length - 1]
+    }
+
     function getTransmissionParams() {
         return {
             "modulation": detailsRoot.selectedModulation,
@@ -193,7 +225,9 @@ Rectangle {
             "alpha": detailsRoot.rolloffAlpha,
             "codeEfficiencyCoef": detailsRoot.codeEfficiencyCoef,
             "carrierFreqMhz": detailsRoot.carrierFreqMhz,
-            "channelBandwidthKhz": detailsRoot.channelBandwidthKhz
+            "channelBandwidthKhz": detailsRoot.channelBandwidthKhz,
+            "codeRateTable": detailsRoot.activeCodeRateTable,
+            "codeRateRegister": detailsRoot.activeCodeRateRegister
         }
     }
 
@@ -712,6 +746,37 @@ Rectangle {
                                 var s = detailsRoot.snrProfileData.combinedSelectionSnrDb[idx]
                                 if (s <= -20.0) return "0.000 (LOS)"
                                 return detailsRoot.calculateRMaxFormula(s, detailsRoot.bitsPerSymbol, detailsRoot.rolloffAlpha, detailsRoot.codeEfficiencyCoef).toFixed(3)
+                            }
+                        }
+                    }
+
+                    Rectangle { width: 1; height: 16; color: detailsRoot.lightMode ? "#ced4da" : "#373a40" }
+
+                    RowLayout {
+                        spacing: 6
+                        Text {
+                            text: "⚙️ MCS Mode:"
+                            font.bold: true
+                            font.pixelSize: 11
+                            color: "#51cf66"
+                        }
+                        Text {
+                            font.bold: true
+                            font.family: "monospace"
+                            font.pixelSize: 11
+                            color: "#51cf66"
+                            text: {
+                                var idx = detailsRoot.hoveredSampleIndex
+                                var rVal = detailsRoot.derivedPeakRMax
+                                if (detailsRoot.snrProfileData && idx >= 0 && detailsRoot.snrProfileData.combinedSelectionSnrDb && idx < detailsRoot.snrProfileData.combinedSelectionSnrDb.length) {
+                                    var s = detailsRoot.snrProfileData.combinedSelectionSnrDb[idx]
+                                    rVal = s > -20.0 ? detailsRoot.calculateRMaxFormula(s, detailsRoot.bitsPerSymbol, detailsRoot.rolloffAlpha, detailsRoot.codeEfficiencyCoef) : 0.0
+                                }
+                                var tier = detailsRoot.getOptimalTierForRMax(rVal)
+                                if (tier) {
+                                    return "HW: " + tier.hw + " (" + tier.name + " " + Number(tier.rate).toFixed(2) + ")"
+                                }
+                                return "N/A"
                             }
                         }
                     }

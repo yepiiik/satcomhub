@@ -391,6 +391,8 @@ ApplicationWindow {
                         satellitesModel.setProperty(s, "rolloffAlpha", data.rolloffAlpha !== undefined ? data.rolloffAlpha : 0.35)
                         satellitesModel.setProperty(s, "txPowerDbm", data.txPowerDbm !== undefined ? data.txPowerDbm : 33.0)
                         satellitesModel.setProperty(s, "txAntennaGainDbi", data.txAntennaGainDbi !== undefined ? data.txAntennaGainDbi : 3.0)
+                        satellitesModel.setProperty(s, "codeRateTable", data.codeRateTable || [])
+                        satellitesModel.setProperty(s, "codeRateRegister", data.codeRateRegister || "fpgatrx/code_rate")
                         satellitesModel.setProperty(s, "latitude", data.latitude)
                         satellitesModel.setProperty(s, "longitude", data.longitude)
                         satellitesModel.setProperty(s, "altitudeKm", data.altitudeKm)
@@ -2151,6 +2153,16 @@ ApplicationWindow {
                 rolloffAlpha: 0.35,
                 txPowerDbm: 33.0,
                 txAntennaGainDbi: 3.0,
+                codeRateTable: [
+                    { name: "R1", rate: 0.910, hw: "0" },
+                    { name: "R2", rate: 0.830, hw: "1" },
+                    { name: "R3", rate: 0.700, hw: "2" },
+                    { name: "R4", rate: 0.570, hw: "3" },
+                    { name: "R5", rate: 0.410, hw: "4" },
+                    { name: "R6", rate: 0.285, hw: "5" },
+                    { name: "R7", rate: 0.190, hw: "6" }
+                ],
+                codeRateRegister: "fpgatrx/code_rate",
                 latitude: prop.latitude,
                 longitude: prop.longitude,
                 altitudeKm: prop.altitudeKm,
@@ -2175,14 +2187,24 @@ ApplicationWindow {
                 name: "POLYITAN-3-PUT (LEO)",
                 tle1: polyL1,
                 tle2: polyL2,
-                carrierFreqMhz: 5850.0,
+                carrierFreqMhz: 5840.0,
                 channelBandwidthKhz: 10000.0,
                 modulation: "QPSK",
                 bitsPerSymbol: 2.0,
-                codeEfficiencyCoef: 1.24,
-                rolloffAlpha: 0.35,
+                codeEfficiencyCoef: 1.00,
+                rolloffAlpha: 0.20,
                 txPowerDbm: 33.0,
                 txAntennaGainDbi: 3.0,
+                codeRateTable: [
+                    { name: "R1", rate: 0.910, hw: "0" },
+                    { name: "R2", rate: 0.830, hw: "1" },
+                    { name: "R3", rate: 0.700, hw: "2" },
+                    { name: "R4", rate: 0.570, hw: "3" },
+                    { name: "R5", rate: 0.410, hw: "4" },
+                    { name: "R6", rate: 0.285, hw: "5" },
+                    { name: "R7", rate: 0.190, hw: "6" }
+                ],
+                codeRateRegister: "fpgatrx/code_rate",
                 latitude: propPoly.latitude,
                 longitude: propPoly.longitude,
                 altitudeKm: propPoly.altitudeKm,
