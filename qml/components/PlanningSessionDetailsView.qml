@@ -263,6 +263,7 @@ Rectangle {
 
     signal previewSessionPlanYamlRequested(var transmissionParams)
     signal exportSessionPlanYamlRequested(var transmissionParams)
+    signal saveToHistoryRequested()
 
     signal editTargetSatelliteConfigRequested()
     signal editGroundStationConfigRequested(string stationId)
@@ -582,6 +583,26 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                         }
                         onClicked: detailsRoot.exportSessionPlanYamlRequested(detailsRoot.getTransmissionParams())
+                    }
+
+                    // Save to History Button
+                    Button {
+                        id: topSaveHistoryBtn
+                        height: 26
+                        background: Rectangle {
+                            radius: 6
+                            color: topSaveHistoryBtn.hovered ? "#087f5b" : "#099268"
+                        }
+                        contentItem: Text {
+                            text: qsTr("💾 Save to History")
+                            font.bold: true
+                            font.pixelSize: 11
+                            color: "#ffffff"
+                            leftPadding: 8; rightPadding: 8
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        onClicked: detailsRoot.saveToHistoryRequested()
                     }
                 }
             }

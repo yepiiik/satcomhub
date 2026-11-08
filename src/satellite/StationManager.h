@@ -59,6 +59,30 @@ public:
     Q_INVOKABLE QVariantList loadStationsFromDisk();
     Q_INVOKABLE QString getDefaultStoragePath() const;
 
+    // Persistent storage helpers for satellites (satellites folder & JSON files)
+    Q_INVOKABLE QString getSatellitesDirectory() const;
+    Q_INVOKABLE void openSatellitesFolder();
+    Q_INVOKABLE QString buildSatelliteJson(const QVariantMap &satData);
+    Q_INVOKABLE QVariantMap parseSatelliteJson(const QString &jsonString);
+    Q_INVOKABLE bool saveSatelliteFile(const QVariantMap &satData);
+    Q_INVOKABLE bool deleteSatelliteFile(const QString &satId);
+    Q_INVOKABLE bool saveSatellitesToDisk(const QVariantList &satellites);
+    Q_INVOKABLE QVariantList loadSatellitesFromDisk();
+
+    // Persistent storage helpers for History Sessions (history folder & session JSONs)
+    Q_INVOKABLE QString getHistoryDirectory() const;
+    Q_INVOKABLE void openHistoryFolder();
+    Q_INVOKABLE QVariantMap saveHistorySession(const QVariantMap &sessionMeta,
+                                               const QVariantMap &satelliteData,
+                                               const QVariantList &stationsList);
+    Q_INVOKABLE QVariantList loadHistorySessions();
+    Q_INVOKABLE QVariantMap loadHistorySessionDetails(const QString &sessionId);
+    Q_INVOKABLE bool updateHistorySessionSatellite(const QString &sessionId, const QVariantMap &satData);
+    Q_INVOKABLE bool updateHistorySessionStation(const QString &sessionId, const QVariantMap &stationData);
+    Q_INVOKABLE bool deleteHistorySessionStation(const QString &sessionId, const QString &stationId);
+    Q_INVOKABLE QVariantMap createBlankHistorySession(const QString &customName = QString());
+    Q_INVOKABLE bool deleteHistorySession(const QString &sessionId);
+
 private:
     static void getBandFrequencies(const QString &band, double customMin, double customMax,
                                    double &outMinMhz, double &outMaxMhz);
