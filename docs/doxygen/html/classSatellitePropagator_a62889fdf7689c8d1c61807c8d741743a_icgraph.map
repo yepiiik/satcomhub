@@ -1,0 +1,5 @@
+<map id="SatellitePropagator::calculateRMax" name="SatellitePropagator::calculateRMax">
+<area shape="rect" id="Node000001" title="Computes maximum achievable code rate $r_{\max}$ for Adaptive Coding &amp; Modulation (AMC)." alt="" coords="251,5,397,45"/>
+<area shape="rect" id="Node000002" href="$classSatellitePropagator.html#aedd1f8cdddce4e7a569050e6d27a029e" title="Generates a YAML session plan string from pass event, SNR profile, and AMC parameters." alt="" coords="5,5,203,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="237,28,203,28,203,23,237,23"/>
+</map>

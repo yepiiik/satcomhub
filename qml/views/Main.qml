@@ -56,6 +56,8 @@ ApplicationWindow {
     property var currentHistoricalObservation: null
     property var currentHistorySessionDetails: null
     property string activeHistoryEditingSessionId: ""
+    property var historyFoundPasses: []
+    property bool historyHasSearchedPasses: false
 
     // Python Factor Modules state (per-station map: stationId -> array of module objects)
     property var stationFactorModulesMap: ({})
@@ -331,8 +333,7 @@ ApplicationWindow {
                 var targetSessionId = window.activeHistoryEditingSessionId
                 window.activeHistoryEditingSessionId = ""
                 stationManager.updateHistorySessionStation(targetSessionId, data)
-                window.selectHistorySession(targetSessionId)
-                window.reloadHistorySessions()
+                window.recalculateHistorySessionPipeline(targetSessionId)
                 return
             }
 
@@ -387,8 +388,7 @@ ApplicationWindow {
                 var targetSessionId = window.activeHistoryEditingSessionId
                 window.activeHistoryEditingSessionId = ""
                 stationManager.updateHistorySessionSatellite(targetSessionId, data)
-                window.selectHistorySession(targetSessionId)
-                window.reloadHistorySessions()
+                window.recalculateHistorySessionPipeline(targetSessionId)
                 return
             }
 
@@ -732,6 +732,8 @@ ApplicationWindow {
     }
 
     function selectHistorySession(sessionId) {
+        window.historyFoundPasses = []
+        window.historyHasSearchedPasses = false
         if (!sessionId || sessionId.length === 0) {
             window.currentHistoricalObservation = null
             window.currentHistorySessionDetails = null
@@ -744,6 +746,74 @@ ApplicationWindow {
         } else {
             window.currentHistorySessionDetails = null
         }
+    }
+
+    function recalculateHistorySessionPipeline(sessionId) {
+        if (!sessionId || sessionId.length === 0) return
+        var savedPasses = window.historyFoundPasses
+        var savedSearched = window.historyHasSearchedPasses
+
+        var det = stationManager.loadHistorySessionDetails(sessionId)
+        if (det && det.valid && det.session && det.hasSatellite && det.satellite &&
+            det.satellite.tle1 && det.satellite.tle2 &&
+            det.stations && det.stations.length > 0 &&
+            det.session.combinedAosUtc && det.session.combinedAosUtc.length > 0 &&
+            det.session.combinedLosUtc && det.session.combinedLosUtc.length > 0) {
+
+            var sat = det.satellite
+            var txPower = sat.txPowerDbm !== undefined ? Number(sat.txPowerDbm) : 33.0
+            var txGain = sat.txAntennaGainDbi !== undefined ? Number(sat.txAntennaGainDbi) : 3.0
+            var freqMhz = sat.carrierFreqMhz !== undefined ? Number(sat.carrierFreqMhz) : 5850.0
+            var bwKhz = sat.channelBandwidthKhz !== undefined ? Number(sat.channelBandwidthKhz) : 20000.0
+
+            var snrRes = propagator.calculatePassSnrProfile(
+                sat.tle1, sat.tle2, det.stations,
+                det.session.combinedAosUtc, det.session.combinedLosUtc,
+                1.0, txPower, txGain, freqMhz, bwKhz
+            )
+
+            var maxSnr = -999.0
+            var sumSnr = 0.0
+            var cntSnr = 0
+            var maxEl = 0.0
+            var stNames = []
+            for (var s = 0; s < det.stations.length; s++) {
+                stNames.push(det.stations[s].name || det.stations[s].stationId)
+            }
+            if (snrRes && snrRes.stations) {
+                for (var i = 0; i < snrRes.stations.length; i++) {
+                    var sObj = snrRes.stations[i]
+                    if (sObj.maxSnrDb !== undefined && sObj.maxSnrDb > maxSnr) maxSnr = sObj.maxSnrDb
+                    if (sObj.maxElevationDeg !== undefined && sObj.maxElevationDeg > maxEl) maxEl = sObj.maxElevationDeg
+                    if (sObj.snrDb && sObj.isVisible) {
+                        for (var k = 0; k < sObj.snrDb.length; k++) {
+                            if (sObj.isVisible[k]) {
+                                sumSnr += sObj.snrDb[k]
+                                cntSnr++
+                            }
+                        }
+                    }
+                }
+            }
+            var meanSnr = cntSnr > 0 ? (sumSnr / cntSnr) : 0.0
+            if (maxSnr < -900.0) maxSnr = 0.0
+
+            var updatedMeta = {
+                maxSnrDb: Number(maxSnr.toFixed(2)),
+                meanSnrDb: Number(meanSnr.toFixed(2)),
+                maxElevationDeg: maxEl > 0 ? Number(maxEl.toFixed(1)) : (det.session.maxElevationDeg || 0.0),
+                stationNames: stNames.join(" + "),
+                stationCount: det.stations.length,
+                isMultiStation: det.stations.length >= 2
+            }
+            stationManager.updateHistorySessionPass(sessionId, updatedMeta, snrRes || {})
+            toastStack.showToast(qsTr("Recalculated pass SNR pipeline for updated config"), "success")
+        }
+
+        window.selectHistorySession(sessionId)
+        window.historyFoundPasses = savedPasses
+        window.historyHasSearchedPasses = savedSearched
+        window.reloadHistorySessions()
     }
 
     function syncStationsCache() {
@@ -1725,6 +1795,7 @@ ApplicationWindow {
                     var _sid = window.selectedSatelliteId
                     return window.getSelectedSatellite()
                 }
+                propagator: propagator
                 stationsModel: stationsModel
                 stationsList: window.stationsList
                 stationsMap: window.stationsMap
@@ -1915,23 +1986,22 @@ ApplicationWindow {
                     var pass = window.currentPlanningSession
                     var sat = window.getSelectedSatellite()
                     var stations = []
-                    if (window.planningSnrData && window.planningSnrData.stationCurves) {
-                        for (var i = 0; i < window.planningSnrData.stationCurves.length; i++) {
-                            var sc = window.planningSnrData.stationCurves[i]
-                            var foundSt = null
-                            if (window.stationsMap && window.stationsMap[sc.stationId]) {
-                                foundSt = window.stationsMap[sc.stationId]
-                            }
-                            if (!foundSt) {
-                                for (var j = 0; j < window.stationsList.length; j++) {
-                                    if (window.stationsList[j].stationId === sc.stationId || window.stationsList[j].name === sc.stationName) {
-                                        foundSt = window.stationsList[j]
-                                        break
-                                    }
+                    var snrStations = (window.planningSnrData && window.planningSnrData.stations) ? window.planningSnrData.stations : []
+                    for (var i = 0; i < snrStations.length; i++) {
+                        var sc = snrStations[i]
+                        var foundSt = null
+                        if (window.stationsMap && window.stationsMap[sc.stationId]) {
+                            foundSt = window.stationsMap[sc.stationId]
+                        }
+                        if (!foundSt) {
+                            for (var j = 0; j < window.stationsList.length; j++) {
+                                if (window.stationsList[j].stationId === sc.stationId || window.stationsList[j].name === sc.stationName) {
+                                    foundSt = window.stationsList[j]
+                                    break
                                 }
                             }
-                            if (foundSt) stations.push(foundSt)
                         }
+                        if (foundSt) stations.push(foundSt)
                     }
                     if (stations.length === 0) {
                         for (var s = 0; s < window.stationsList.length; s++) {
@@ -1947,19 +2017,30 @@ ApplicationWindow {
                     var timeTag = Qt.formatDateTime(new Date(), "yyyyMMdd_hhmmss")
                     var sessionId = "SESSION_" + timeTag + "_" + cleanSat + "_Pass" + passIdx
 
+                    var aosStr = pass ? (pass.combinedAosUtc || "") : ""
+                    var losStr = pass ? (pass.combinedLosUtc || "") : ""
+                    var relStr = pass ? (pass.relativeAos || "Planned Pass") : "Planned Pass"
+
                     var sessionMeta = {
                         sessionId: sessionId,
-                        sessionName: satName + " — Pass #" + passIdx + " (" + (pass ? pass.relativeTimeStr : "Planned Pass") + ")",
-                        dateUtc: pass ? (pass.dateStr + " " + pass.timeWindowStr) : Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm:ss 'UTC'"),
-                        combinedAosUtc: pass ? pass.startTimeIso : "",
-                        combinedLosUtc: pass ? pass.endTimeIso : "",
-                        durationSeconds: pass ? pass.durationSeconds : 0,
-                        durationFormatted: pass ? pass.durationFormatted : "--",
+                        sessionName: satName + " — Pass #" + passIdx + " (" + relStr + ")",
+                        dateUtc: aosStr !== "" ? aosStr : Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm:ss 'UTC'"),
+                        combinedAosUtc: aosStr,
+                        combinedLosUtc: losStr,
+                        durationSeconds: pass ? (pass.combinedDurationSeconds || 0) : 0,
+                        durationFormatted: pass ? (pass.combinedDurationFormatted || "--") : "--",
                         satelliteId: sat ? sat.satId : "",
                         satelliteName: satName,
-                        maxSnrDb: pass && pass.maxSnrDb !== undefined ? pass.maxSnrDb : (window.planningSnrData ? window.planningSnrData.overallMaxSnr : 0.0),
+                        maxSnrDb: pass && pass.maxSnrDb !== undefined ? pass.maxSnrDb : (window.planningSnrData ? (window.planningSnrData.overallMaxSnr || 0.0) : 0.0),
                         meanSnrDb: pass && pass.meanSnrDb !== undefined ? pass.meanSnrDb : 0.0,
                         maxElevationDeg: pass && pass.maxElevationDeg !== undefined ? pass.maxElevationDeg : 0.0,
+                        passIndex: passIdx,
+                        relativeAos: relStr,
+                        stationNames: pass && pass.stationNames ? pass.stationNames : "",
+                        isMultiStation: pass && pass.isMultiStation !== undefined ? pass.isMultiStation : (stations.length >= 2),
+                        hasConcurrentOverlap: pass && pass.hasConcurrentOverlap !== undefined ? pass.hasConcurrentOverlap : false,
+                        overlapDurationFormatted: pass && pass.overlapDurationFormatted ? pass.overlapDurationFormatted : "",
+                        windowGainPercent: pass && pass.windowGainPercent !== undefined ? pass.windowGainPercent : 0.0,
                         status: "Planned",
                         notes: "Session saved from Planning forecast with target satellite and ground station RF parameters.",
                         snrData: window.planningSnrData || {}
@@ -1978,8 +2059,11 @@ ApplicationWindow {
                 anchors.fill: parent
                 visible: window.currentNavTab === 2
                 sessionDetails: window.currentHistorySessionDetails
+                propagator: propagator
                 availableSatellites: window.satellitesList
                 availableStations: window.stationsList
+                historyFoundPasses: window.historyFoundPasses
+                historyHasSearchedPasses: window.historyHasSearchedPasses
                 lightMode: window.lightMode
 
                 onEditSatelliteRequested: (satData) => {
@@ -2000,8 +2084,7 @@ ApplicationWindow {
                     if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
                         var sid = window.currentHistorySessionDetails.session.sessionId
                         stationManager.updateHistorySessionSatellite(sid, refSat)
-                        window.selectHistorySession(sid)
-                        window.reloadHistorySessions()
+                        window.recalculateHistorySessionPipeline(sid)
                         toastStack.showToast(qsTr("Satellite config copied to session"), "success")
                     }
                 }
@@ -2010,8 +2093,7 @@ ApplicationWindow {
                     if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
                         var sid = window.currentHistorySessionDetails.session.sessionId
                         stationManager.updateHistorySessionSatellite(sid, {})
-                        window.selectHistorySession(sid)
-                        window.reloadHistorySessions()
+                        window.recalculateHistorySessionPipeline(sid)
                     }
                 }
 
@@ -2033,8 +2115,7 @@ ApplicationWindow {
                     if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
                         var sid = window.currentHistorySessionDetails.session.sessionId
                         stationManager.updateHistorySessionStation(sid, refSt)
-                        window.selectHistorySession(sid)
-                        window.reloadHistorySessions()
+                        window.recalculateHistorySessionPipeline(sid)
                         toastStack.showToast(qsTr("Ground Station copied to session"), "success")
                     }
                 }
@@ -2043,8 +2124,7 @@ ApplicationWindow {
                     if (window.currentHistorySessionDetails && window.currentHistorySessionDetails.session) {
                         var sid = window.currentHistorySessionDetails.session.sessionId
                         stationManager.deleteHistorySessionStation(sid, stId)
-                        window.selectHistorySession(sid)
-                        window.reloadHistorySessions()
+                        window.recalculateHistorySessionPipeline(sid)
                     }
                 }
 
@@ -2062,6 +2142,126 @@ ApplicationWindow {
 
                 onOpenSessionFolderRequested: (sid) => {
                     stationManager.openHistoryFolder()
+                }
+
+                onFindHistoryPassesRangeRequested: (startUtcStr, endUtcStr) => {
+                    var det = window.currentHistorySessionDetails
+                    if (!det || !det.hasSatellite || !det.satellite || !det.satellite.tle1 || !det.satellite.tle2) {
+                        toastStack.showToast(qsTr("Assign a Target Satellite with valid TLE first"), "error")
+                        return
+                    }
+                    if (!det.stations || det.stations.length === 0) {
+                        toastStack.showToast(qsTr("Add at least one Ground Station to search passes"), "error")
+                        return
+                    }
+                    var res = propagator.calculatePassWindowsInRange(
+                        det.satellite.tle1,
+                        det.satellite.tle2,
+                        det.stations,
+                        startUtcStr,
+                        endUtcStr,
+                        20.0
+                    )
+                    window.historyHasSearchedPasses = true
+                    if (res && res.valid && res.passes) {
+                        window.historyFoundPasses = res.passes
+                        toastStack.showToast(qsTr("Found %1 pass window(s) for session stations").arg(res.passes.length), "success")
+                    } else {
+                        window.historyFoundPasses = []
+                        toastStack.showToast(res && res.error ? res.error : qsTr("No passes found in selected date range"), "info")
+                    }
+                }
+
+                onHistoryPassWindowSelected: (passEvent) => {
+                    var det = window.currentHistorySessionDetails
+                    if (!det || !det.session || !det.satellite || !det.stations || det.stations.length === 0 || !passEvent) {
+                        return
+                    }
+                    var sat = det.satellite
+                    var sid = det.session.sessionId
+
+                    // Same station filtering & calculation pipeline as Planning (calculatePlanningSnr)
+                    var stationsToCalc = []
+                    if (passEvent.stationPasses && passEvent.stationPasses.length > 0) {
+                        for (var sp = 0; sp < passEvent.stationPasses.length; sp++) {
+                            var pId = passEvent.stationPasses[sp].stationId
+                            var pName = passEvent.stationPasses[sp].stationName
+                            for (var st = 0; st < det.stations.length; st++) {
+                                if ((pId && det.stations[st].stationId === pId) || (pName && det.stations[st].name === pName)) {
+                                    stationsToCalc.push(det.stations[st])
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    if (stationsToCalc.length === 0) {
+                        stationsToCalc = det.stations
+                    }
+
+                    var txPower = sat.txPowerDbm !== undefined ? Number(sat.txPowerDbm) : 33.0
+                    var txGain = sat.txAntennaGainDbi !== undefined ? Number(sat.txAntennaGainDbi) : 3.0
+                    var freqMhz = sat.carrierFreqMhz !== undefined ? Number(sat.carrierFreqMhz) : 5850.0
+                    var bwKhz = sat.channelBandwidthKhz !== undefined ? Number(sat.channelBandwidthKhz) : 20000.0
+
+                    var snrRes = propagator.calculatePassSnrProfile(
+                        sat.tle1, sat.tle2, stationsToCalc,
+                        passEvent.combinedAosUtc, passEvent.combinedLosUtc,
+                        1.0, txPower, txGain, freqMhz, bwKhz
+                    )
+
+                    // Compute peak & mean SNR across visible samples
+                    var maxSnr = -999.0
+                    var sumSnr = 0.0
+                    var cntSnr = 0
+                    if (snrRes && snrRes.stations) {
+                        for (var i = 0; i < snrRes.stations.length; i++) {
+                            var sObj = snrRes.stations[i]
+                            if (sObj.maxSnrDb !== undefined && sObj.maxSnrDb > maxSnr) {
+                                maxSnr = sObj.maxSnrDb
+                            }
+                            if (sObj.snrDb && sObj.isVisible) {
+                                for (var k = 0; k < sObj.snrDb.length; k++) {
+                                    if (sObj.isVisible[k]) {
+                                        sumSnr += sObj.snrDb[k]
+                                        cntSnr++
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    var meanSnr = cntSnr > 0 ? (sumSnr / cntSnr) : 0.0
+                    if (maxSnr < -900.0) maxSnr = 0.0
+
+                    var updatedMeta = {
+                        sessionName: (sat.name || "Satellite") + " — Pass #" + passEvent.passIndex + " (" + (passEvent.relativeAos || "") + ")",
+                        dateUtc: passEvent.combinedAosUtc || "",
+                        combinedAosUtc: passEvent.combinedAosUtc || "",
+                        combinedLosUtc: passEvent.combinedLosUtc || "",
+                        durationSeconds: passEvent.combinedDurationSeconds || 0,
+                        durationFormatted: passEvent.combinedDurationFormatted || "--",
+                        maxSnrDb: Number(maxSnr.toFixed(2)),
+                        meanSnrDb: Number(meanSnr.toFixed(2)),
+                        maxElevationDeg: passEvent.maxElevationDeg !== undefined ? passEvent.maxElevationDeg : 0.0,
+                        passIndex: passEvent.passIndex || 1,
+                        relativeAos: passEvent.relativeAos || "",
+                        stationNames: passEvent.stationNames || "",
+                        stationCount: passEvent.stationCount || stationsToCalc.length,
+                        isMultiStation: Boolean(passEvent.isMultiStation),
+                        hasConcurrentOverlap: Boolean(passEvent.hasConcurrentOverlap),
+                        overlapDurationFormatted: passEvent.overlapDurationFormatted || "",
+                        windowGainPercent: passEvent.windowGainPercent || 0.0,
+                        status: "Decoded"
+                    }
+
+                    stationManager.updateHistorySessionPass(sid, updatedMeta, snrRes || {})
+                    // Preserve foundPasses across reload
+                    var savedPasses = window.historyFoundPasses
+                    var savedSearched = window.historyHasSearchedPasses
+                    window.selectHistorySession(sid)
+                    window.historyFoundPasses = savedPasses
+                    window.historyHasSearchedPasses = savedSearched
+                    window.reloadHistorySessions()
+                    toastStack.showToast(qsTr("Calculated pass SNR & updated history session"), "success")
                 }
             }
 

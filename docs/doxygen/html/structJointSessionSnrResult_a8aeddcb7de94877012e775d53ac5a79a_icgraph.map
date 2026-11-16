@@ -1,0 +1,5 @@
+<map id="JointSessionSnrResult::toVariantMap" name="JointSessionSnrResult::toVariantMap">
+<area shape="rect" id="Node000001" title=" " alt="" coords="233,5,396,45"/>
+<area shape="rect" id="Node000002" href="$classSatellitePropagator.html#ab3ecedc01d6d479e488b4cd36e9a354c" title="Computes time&#45;aligned FSPL, atmospheric loss, total loss, and SNR profiles for a pass window." alt="" coords="5,5,185,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="220,28,186,28,186,23,220,23"/>
+</map>

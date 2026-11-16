@@ -1,0 +1,5 @@
+<map id="SatellitePropagator::generateSessionPlanYaml" name="SatellitePropagator::generateSessionPlanYaml">
+<area shape="rect" id="Node000001" title="Generates a YAML session plan string from pass event, SNR profile, and AMC parameters." alt="" coords="5,5,203,45"/>
+<area shape="rect" id="Node000002" href="$classSatellitePropagator.html#a62889fdf7689c8d1c61807c8d741743a" title="Computes maximum achievable code rate $r_{\max}$ for Adaptive Coding &amp; Modulation (AMC)." alt="" coords="251,5,397,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="203,23,236,23,236,28,203,28"/>
+</map>

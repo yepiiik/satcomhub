@@ -1,0 +1,7 @@
+<map id="SignalLossModel::calculateDopplerShift" name="SignalLossModel::calculateDopplerShift">
+<area shape="rect" id="Node000001" title=" " alt="" coords="477,5,676,45"/>
+<area shape="rect" id="Node000002" href="$classSignalLossModel.html#a40030098ebecc995c876ba9c6d4f549f" title=" " alt="" coords="233,5,429,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="464,28,429,28,429,23,464,23"/>
+<area shape="rect" id="Node000003" href="$classSatellitePropagator.html#ab3ecedc01d6d479e488b4cd36e9a354c" title="Computes time&#45;aligned FSPL, atmospheric loss, total loss, and SNR profiles for a pass window." alt="" coords="5,5,185,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="220,28,185,28,185,23,220,23"/>
+</map>

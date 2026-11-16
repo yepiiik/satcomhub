@@ -1,0 +1,13 @@
+<map id="StationManager::saveStationsToDisk" name="StationManager::saveStationsToDisk">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,63,223,103"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a74ff732300d43d63d1d37b77e14d78ed" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="271,13,509,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="210,60,314,38,315,43,211,65"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#ad1dc0b366d43e4621560c50b2662f747" title=" " alt="" coords="287,63,493,103"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="223,80,273,80,273,85,223,85"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="282,127,498,153"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="211,100,315,122,314,127,210,105"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#aeba880c266ee2110001a5368809d56f3" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="557,5,799,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="509,23,544,23,544,28,509,28"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a1b2dc4c3e150cd6c80d9c2ca2fd58402" title=" " alt="" coords="847,13,1112,38"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="799,23,833,23,833,28,799,28"/>
+</map>

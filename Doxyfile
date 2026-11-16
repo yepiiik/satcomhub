@@ -1,0 +1,51 @@
+# Doxyfile for SatComHub
+
+PROJECT_NAME           = "SatComHub"
+PROJECT_NUMBER         = "0.1"
+PROJECT_BRIEF          = "Satellite Communication Ground Station & Pass Planning Hub"
+OUTPUT_DIRECTORY       = docs/doxygen
+
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+
+# Input files
+INPUT                  = src docs/ARCHITECTURE.md README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.hpp *.cpp *.md
+EXCLUDE_PATTERNS       = */third_party/* */build/*
+USE_MDFILE_AS_MAINPAGE = docs/ARCHITECTURE.md
+
+# Extraction settings
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MARKDOWN_SUPPORT       = YES
+
+# Source browsing
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+# Output formats
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+
+# Diagrams (Graphviz dot is installed at /usr/bin/dot)
+HAVE_DOT               = YES
+UML_LOOK               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+COLLABORATION_GRAPH    = YES
+CLASS_GRAPH            = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+

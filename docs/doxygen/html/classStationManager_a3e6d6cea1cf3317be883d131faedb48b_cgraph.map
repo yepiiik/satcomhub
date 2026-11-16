@@ -1,0 +1,7 @@
+<map id="StationManager::loadHistorySessions" name="StationManager::loadHistorySessions">
+<area shape="rect" id="Node000001" title="Lists all saved history sessions sorted newest&#45;first." alt="" coords="5,35,213,75"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#ae1d03311069101c77d0a987c3225bb0b" title=" " alt="" coords="267,5,468,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="213,40,252,36,253,41,214,46"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a0e1cc369a4afbcd03cdf4c612756009c" title="Reads the full UTF&#45;8 text contents of filePath." alt="" coords="261,70,473,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="214,63,248,67,247,72,213,69"/>
+</map>

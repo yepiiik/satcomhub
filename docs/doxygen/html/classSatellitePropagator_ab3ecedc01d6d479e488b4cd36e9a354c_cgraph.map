@@ -1,0 +1,15 @@
+<map id="SatellitePropagator::calculatePassSnrProfile" name="SatellitePropagator::calculatePassSnrProfile">
+<area shape="rect" id="Node000001" title="Computes time&#45;aligned FSPL, atmospheric loss, total loss, and SNR profiles for a pass window." alt="" coords="5,131,185,171"/>
+<area shape="rect" id="Node000002" href="$classSignalLossModel.html#a40030098ebecc995c876ba9c6d4f549f" title=" " alt="" coords="233,99,429,139"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,136,219,131,220,136,186,141"/>
+<area shape="rect" id="Node000007" href="$structJointSessionSnrResult.html#a8aeddcb7de94877012e775d53ac5a79a" title=" " alt="" coords="250,163,413,203"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="186,160,237,167,236,172,185,165"/>
+<area shape="rect" id="Node000003" href="$classSignalLossModel.html#a92677dc56e697c64bf1d72410b555ed3" title=" " alt="" coords="491,5,689,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="375,96,476,55,500,47,502,52,478,60,377,101"/>
+<area shape="rect" id="Node000004" href="$classSignalLossModel.html#a3c9a89bbe0082878f0feb0802282aa01" title=" " alt="" coords="491,69,689,109"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="429,105,477,99,478,105,430,110"/>
+<area shape="rect" id="Node000005" href="$classSignalLossModel.html#aa7c3c944105c2a252266222b034a534f" title=" " alt="" coords="477,134,703,159"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="430,127,464,130,463,136,429,132"/>
+<area shape="rect" id="Node000006" href="$classSignalLossModel.html#aa72fd4fedd49844518f70f2356486eb4" title=" " alt="" coords="491,184,689,224"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="397,136,430,148,478,170,501,177,499,182,476,174,428,153,396,141"/>
+</map>

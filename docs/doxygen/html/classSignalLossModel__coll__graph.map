@@ -1,0 +1,3 @@
+<map id="SignalLossModel" name="SignalLossModel">
+<area shape="rect" id="Node000001" title="Engine that computes FSPL, loss vectors, and link&#45;budget SNR over a satellite pass window." alt="" coords="5,5,215,151"/>
+</map>

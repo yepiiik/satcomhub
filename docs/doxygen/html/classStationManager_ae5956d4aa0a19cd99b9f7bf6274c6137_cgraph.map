@@ -1,0 +1,15 @@
+<map id="StationManager::updateHistorySessionStation" name="StationManager::updateHistorySessionStation">
+<area shape="rect" id="Node000001" title="Updates or adds a ground station JSON inside a specific history session folder." alt="" coords="5,92,231,132"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a74ff732300d43d63d1d37b77e14d78ed" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="279,13,517,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="165,89,278,48,315,38,316,44,279,53,167,94"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#ae1d03311069101c77d0a987c3225bb0b" title=" " alt="" coords="297,63,499,103"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="231,98,283,92,283,97,231,103"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#a0e1cc369a4afbcd03cdf4c612756009c" title="Reads the full UTF&#45;8 text contents of filePath." alt="" coords="292,127,504,153"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="231,121,278,125,278,131,231,126"/>
+<area shape="rect" id="Node000007" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="290,177,506,202"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="177,130,279,161,319,171,318,176,278,167,175,135"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#aeba880c266ee2110001a5368809d56f3" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="565,5,807,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="517,23,552,23,552,28,517,28"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a1b2dc4c3e150cd6c80d9c2ca2fd58402" title=" " alt="" coords="855,13,1120,38"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="807,23,841,23,841,28,807,28"/>
+</map>

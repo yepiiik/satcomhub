@@ -1,0 +1,24 @@
+<map id="StationManager::computeDerivedParameters" name="StationManager::computeDerivedParameters">
+<area shape="rect" id="Node000001" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="845,165,1087,205"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a74ff732300d43d63d1d37b77e14d78ed" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="559,198,797,223"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="832,200,798,203,798,197,832,194"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#a25d4ef4732041e768bff8aef14a86249" title="Parses a ground station JSON string (single object or array) into a structured QVariantMap." alt="" coords="268,45,511,70"/>
+<area shape="poly" id="edge11_Node000001_Node000005" title=" " alt="" coords="864,165,510,85,451,73,452,67,511,80,865,160"/>
+<area shape="rect" id="Node000003" href="$classPythonModuleRunner.html#a6eca56fd85d8591c7f78c181ed90d7ab" title="Builds the session prediction input JSON payload for Python factor modules." alt="" coords="303,95,475,135"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="633,195,510,149,470,137,472,132,512,144,635,190"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a8cbd50d06de4526cee28d441773908d4" title="Returns a pre&#45;built ground station JSON template for quick testing/importing." alt="" coords="288,159,491,199"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="549,199,491,193,491,187,550,194"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="643,192,557,130,534,105,524,95,509,85,478,73,480,68,512,80,528,91,538,102,560,126,646,188"/>
+<area shape="rect" id="Node000008" href="$classStationManager.html#a43b8d9c0db7f020141b9a83859194bc8" title="Saves a complete planning session snapshot (metadata, satellite, stations, and optional SNR telemetry..." alt="" coords="284,223,495,263"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="550,228,495,234,494,228,550,222"/>
+<area shape="rect" id="Node000009" href="$classStationManager.html#aee584e40f2107f827013bf18f34a38a5" title=" " alt="" coords="273,287,506,313"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="636,231,578,255,511,277,461,290,460,285,510,272,576,250,634,226"/>
+<area shape="rect" id="Node000010" href="$classStationManager.html#a28be72d439a204ac0c62830bb5a3b7f0" title=" " alt="" coords="281,337,498,377"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="653,234,591,281,552,306,512,328,481,340,479,335,510,323,550,302,588,277,650,230"/>
+<area shape="rect" id="Node000011" href="$classStationManager.html#ae5956d4aa0a19cd99b9f7bf6274c6137" title="Updates or adds a ground station JSON inside a specific history session folder." alt="" coords="277,401,502,441"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="663,237,638,271,603,313,560,356,512,392,488,404,485,399,509,387,557,352,599,310,634,268,659,233"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#a86dfc8df93805a855d56adc5999a904e" title="Loads full details (session, satellite, stations, snrProfileData) for a single history session." alt="" coords="9,5,217,45"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="265,46,216,40,217,35,266,40"/>
+<area shape="rect" id="Node000007" href="$classStationManager.html#a6cf296f6da2ce64349367d5e4b3bb3cf" title=" " alt="" coords="5,69,220,109"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="266,74,221,80,220,74,266,69"/>
+</map>

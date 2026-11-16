@@ -1,0 +1,10 @@
+<map id="StationManager::parseStationJson" name="StationManager::parseStationJson">
+<area shape="rect" id="Node000001" title="Parses a ground station JSON string (single object or array) into a structured QVariantMap." alt="" coords="5,31,248,56"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a74ff732300d43d63d1d37b77e14d78ed" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="296,5,535,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="248,30,282,27,283,32,248,35"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#aeba880c266ee2110001a5368809d56f3" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="583,23,824,63"/>
+<area shape="poly" id="edge4_Node000001_Node000003" title=" " alt="" coords="248,41,569,41,569,46,248,46"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="535,26,569,29,569,34,535,31"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a1b2dc4c3e150cd6c80d9c2ca2fd58402" title=" " alt="" coords="872,31,1137,56"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="824,41,858,41,858,46,824,46"/>
+</map>

@@ -1,0 +1,18 @@
+<map id="StationManager::loadSatellitesFromDisk" name="StationManager::loadSatellitesFromDisk">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,99,228,139"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#afc55e6a954d76409ec96df08f4b4a876" title=" " alt="" coords="575,56,821,81"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="228,98,276,91,423,79,561,71,561,76,423,84,276,97,229,103"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a962c63fcce0e3f8eb2d200c04e4cd520" title=" " alt="" coords="591,178,805,218"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="151,137,208,167,242,181,277,191,353,204,432,210,508,211,577,208,577,213,508,216,432,216,353,210,275,197,240,186,206,172,149,142"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#aaebff7a8d5b42a255245dcc9832437a6" title=" " alt="" coords="276,5,527,31"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="158,97,213,72,275,47,329,32,330,37,277,53,215,77,160,102"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#a0e1cc369a4afbcd03cdf4c612756009c" title="Reads the full UTF&#45;8 text contents of filePath." alt="" coords="295,156,507,181"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="229,136,314,151,313,156,228,141"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#a18b47eb51f8003dd891a4db2b493130c" title=" " alt="" coords="281,107,522,132"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="228,117,267,117,267,122,228,122"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="477,28,610,51,609,56,476,33"/>
+<area shape="poly" id="edge7_Node000006_Node000002" title=" " alt="" coords="476,104,609,81,610,86,477,109"/>
+<area shape="poly" id="edge8_Node000006_Node000003" title=" " alt="" coords="477,129,527,141,628,171,627,176,526,146,476,135"/>
+<area shape="rect" id="Node000007" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="590,107,806,132"/>
+<area shape="poly" id="edge9_Node000006_Node000007" title=" " alt="" coords="522,117,576,117,576,122,522,122"/>
+</map>

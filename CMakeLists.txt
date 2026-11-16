@@ -42,28 +42,39 @@ qt_add_qml_module(appsatcomhub
     VERSION 1.0
     QML_FILES
         qml/views/Main.qml
-        qml/components/MapComponent.qml
-        qml/components/StationMarker.qml
-        qml/components/SatelliteMarker.qml
-        qml/components/DraftStationMarker.qml
-        qml/components/MercatorMapView.qml
-        qml/components/EquirectangularMapView.qml
-        qml/components/MapControlsOverlay.qml
-        qml/components/PassWindowCalculator.qml
-        qml/components/PassSnrPlotModal.qml
-        qml/components/MapUtils.js
-        qml/components/CompactDoubleSpinBox.qml
-        qml/components/StationDialog.qml
-        qml/components/StationJsonViewer.qml
-        qml/components/SessionPlanYamlViewer.qml
-        qml/components/VerticalNavBar.qml
-        qml/components/SatelliteDialog.qml
-        qml/components/ObjectsListSidebar.qml
-        qml/components/PlanningListSidebar.qml
-        qml/components/PlanningSessionDetailsView.qml
-        qml/components/HistoryListSidebar.qml
-        qml/components/HistoryDetailsView.qml
-        qml/components/ToastStackOverlay.qml
+
+        # Common UI Components
+        qml/components/common/VerticalNavBar.qml
+        qml/components/common/CompactDoubleSpinBox.qml
+        qml/components/common/ToastStackOverlay.qml
+        qml/components/common/SessionOverviewBlock.qml
+
+        # Map & Geospatial Views
+        qml/components/map/MapComponent.qml
+        qml/components/map/MercatorMapView.qml
+        qml/components/map/EquirectangularMapView.qml
+        qml/components/map/MapControlsOverlay.qml
+        qml/components/map/MapUtils.js
+        qml/components/map/StationMarker.qml
+        qml/components/map/SatelliteMarker.qml
+        qml/components/map/DraftStationMarker.qml
+
+        # Objects (Ground Stations & Satellites)
+        qml/components/objects/ObjectsListSidebar.qml
+        qml/components/objects/StationDialog.qml
+        qml/components/objects/SatelliteDialog.qml
+        qml/components/objects/StationJsonViewer.qml
+
+        # Planning (Pass Prediction & Session Plans)
+        qml/components/planning/PlanningListSidebar.qml
+        qml/components/planning/PlanningSessionDetailsView.qml
+        qml/components/planning/PassWindowCalculator.qml
+        qml/components/planning/PassSnrPlotModal.qml
+        qml/components/planning/SessionPlanYamlViewer.qml
+
+        # History (Saved & Manual Session Logs)
+        qml/components/history/HistoryListSidebar.qml
+        qml/components/history/HistoryDetailsView.qml
     RESOURCES
         resources/marker.svg
         resources/earth_equirectangular.jpg

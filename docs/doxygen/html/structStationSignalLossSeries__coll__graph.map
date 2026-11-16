@@ -1,0 +1,3 @@
+<map id="StationSignalLossSeries" name="StationSignalLossSeries">
+<area shape="rect" id="Node000001" title="Represents the aligned time&#45;series vectors of signal loss and link budget for a single ground station..." alt="" coords="5,5,175,271"/>
+</map>

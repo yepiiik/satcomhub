@@ -1,0 +1,5 @@
+<map id="SatellitePropagator::calculatePassWindows" name="SatellitePropagator::calculatePassWindows">
+<area shape="rect" id="Node000001" title="Predicts future satellite pass windows across active ground stations (single &amp; multi&#45;station handover..." alt="" coords="5,5,183,45"/>
+<area shape="rect" id="Node000002" href="$classSatellitePropagator.html#ad44c1ff61924aedeff5ceb48fcb17e47" title=" " alt="" coords="231,5,377,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,23,217,23,217,28,183,28"/>
+</map>

@@ -1,0 +1,17 @@
+<map id="src/satellite/StationManager.h" name="src/satellite/StationManager.h">
+<area shape="rect" id="Node000001" title=" " alt="" coords="273,5,489,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,80,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="324,33,94,81,93,76,323,28"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="105,79,175,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="343,33,190,78,188,73,342,28"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="200,79,307,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="362,33,288,74,285,69,359,28"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="331,79,432,104"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="384,31,384,65,379,65,379,31"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="456,79,557,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="403,28,476,69,473,74,400,33"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="582,79,709,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="424,28,590,72,589,78,423,33"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="733,79,827,104"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="449,28,719,76,718,81,448,33"/>
+</map>

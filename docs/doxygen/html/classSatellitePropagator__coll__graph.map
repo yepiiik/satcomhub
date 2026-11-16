@@ -1,0 +1,5 @@
+<map id="SatellitePropagator" name="SatellitePropagator">
+<area shape="rect" id="Node000001" title="SGP4 orbital propagator, pass window predictor, and link&#45;budget analyzer exposed to QML." alt="" coords="5,119,211,404"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="75,5,141,71"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="111,84,111,119,105,119,105,84"/>
+</map>

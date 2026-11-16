@@ -1,0 +1,7 @@
+<map id="StationManager::buildStationJson" name="StationManager::buildStationJson">
+<area shape="rect" id="Node000001" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="5,13,244,38"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#aeba880c266ee2110001a5368809d56f3" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="292,5,533,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="244,23,279,23,279,28,244,28"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a1b2dc4c3e150cd6c80d9c2ca2fd58402" title=" " alt="" coords="581,13,847,38"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="534,23,568,23,568,28,534,28"/>
+</map>

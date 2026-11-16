@@ -1213,6 +1213,13 @@ QVariantMap StationManager::saveHistorySession(const QVariantMap &sessionMeta,
     sessObj["maxSnrDb"] = sessionMeta.value("maxSnrDb", 0.0).toDouble();
     sessObj["meanSnrDb"] = sessionMeta.value("meanSnrDb", 0.0).toDouble();
     sessObj["maxElevationDeg"] = sessionMeta.value("maxElevationDeg", 0.0).toDouble();
+    sessObj["passIndex"] = sessionMeta.value("passIndex", 1).toInt();
+    sessObj["relativeAos"] = sessionMeta.value("relativeAos", "").toString();
+    sessObj["stationNames"] = sessionMeta.value("stationNames", "").toString();
+    sessObj["isMultiStation"] = sessionMeta.value("isMultiStation", stCount >= 2).toBool();
+    sessObj["hasConcurrentOverlap"] = sessionMeta.value("hasConcurrentOverlap", false).toBool();
+    sessObj["overlapDurationFormatted"] = sessionMeta.value("overlapDurationFormatted", "").toString();
+    sessObj["windowGainPercent"] = sessionMeta.value("windowGainPercent", 0.0).toDouble();
     sessObj["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
     QJsonDocument sessDoc(sessObj);
@@ -1453,4 +1460,52 @@ bool StationManager::deleteHistorySession(const QString &sessionId)
         return dir.removeRecursively();
     }
     return false;
+}
+
+bool StationManager::updateHistorySessionPass(const QString &sessionId, const QVariantMap &sessionMeta, const QVariantMap &snrData)
+{
+    QString safeSid = sessionId.trimmed();
+    safeSid.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+
+    QString sessionFolderPath = getHistoryDirectory() + "/" + safeSid;
+    QDir sessionDir(sessionFolderPath);
+    if (!sessionDir.exists()) return false;
+
+    QString sessPath = sessionDir.filePath("session.json");
+    QJsonObject sessObj;
+    if (QFile::exists(sessPath)) {
+        QJsonDocument doc = QJsonDocument::fromJson(readTextFile(sessPath).toUtf8());
+        if (doc.isObject()) {
+            sessObj = doc.object();
+        }
+    }
+
+    if (sessionMeta.contains("sessionName")) sessObj["sessionName"] = sessionMeta.value("sessionName").toString();
+    if (sessionMeta.contains("dateUtc")) sessObj["dateUtc"] = sessionMeta.value("dateUtc").toString();
+    if (sessionMeta.contains("combinedAosUtc")) sessObj["combinedAosUtc"] = sessionMeta.value("combinedAosUtc").toString();
+    if (sessionMeta.contains("combinedLosUtc")) sessObj["combinedLosUtc"] = sessionMeta.value("combinedLosUtc").toString();
+    if (sessionMeta.contains("durationSeconds")) sessObj["durationSeconds"] = sessionMeta.value("durationSeconds").toDouble();
+    if (sessionMeta.contains("durationFormatted")) sessObj["durationFormatted"] = sessionMeta.value("durationFormatted").toString();
+    if (sessionMeta.contains("maxSnrDb")) sessObj["maxSnrDb"] = sessionMeta.value("maxSnrDb").toDouble();
+    if (sessionMeta.contains("meanSnrDb")) sessObj["meanSnrDb"] = sessionMeta.value("meanSnrDb").toDouble();
+    if (sessionMeta.contains("maxElevationDeg")) sessObj["maxElevationDeg"] = sessionMeta.value("maxElevationDeg").toDouble();
+    if (sessionMeta.contains("status")) sessObj["status"] = sessionMeta.value("status").toString();
+    if (sessionMeta.contains("notes")) sessObj["notes"] = sessionMeta.value("notes").toString();
+    if (sessionMeta.contains("passIndex")) sessObj["passIndex"] = sessionMeta.value("passIndex").toInt();
+    if (sessionMeta.contains("relativeAos")) sessObj["relativeAos"] = sessionMeta.value("relativeAos").toString();
+    if (sessionMeta.contains("stationNames")) sessObj["stationNames"] = sessionMeta.value("stationNames").toString();
+    if (sessionMeta.contains("stationCount")) sessObj["stationCount"] = sessionMeta.value("stationCount").toInt();
+    if (sessionMeta.contains("isMultiStation")) sessObj["isMultiStation"] = sessionMeta.value("isMultiStation").toBool();
+    if (sessionMeta.contains("hasConcurrentOverlap")) sessObj["hasConcurrentOverlap"] = sessionMeta.value("hasConcurrentOverlap").toBool();
+    if (sessionMeta.contains("overlapDurationFormatted")) sessObj["overlapDurationFormatted"] = sessionMeta.value("overlapDurationFormatted").toString();
+    if (sessionMeta.contains("windowGainPercent")) sessObj["windowGainPercent"] = sessionMeta.value("windowGainPercent").toDouble();
+
+    bool ok = writeTextFile(sessPath, QString::fromUtf8(QJsonDocument(sessObj).toJson(QJsonDocument::Indented)));
+
+    if (!snrData.isEmpty()) {
+        QJsonDocument snrDoc(QJsonObject::fromVariantMap(snrData));
+        writeTextFile(sessionDir.filePath("telemetry.json"), QString::fromUtf8(snrDoc.toJson(QJsonDocument::Indented)));
+    }
+
+    return ok;
 }

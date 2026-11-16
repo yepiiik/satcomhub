@@ -1,0 +1,9 @@
+<map id="StationManager::deleteHistorySessionStation" name="StationManager::deleteHistorySessionStation">
+<area shape="rect" id="Node000001" title="Removes a ground station JSON from a specific history session folder." alt="" coords="5,63,227,103"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#ae1d03311069101c77d0a987c3225bb0b" title=" " alt="" coords="282,5,483,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="209,60,275,46,276,51,210,65"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a0e1cc369a4afbcd03cdf4c612756009c" title="Reads the full UTF&#45;8 text contents of filePath." alt="" coords="277,70,489,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="227,80,263,80,263,85,227,85"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="275,119,491,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="225,100,300,114,299,119,224,105"/>
+</map>

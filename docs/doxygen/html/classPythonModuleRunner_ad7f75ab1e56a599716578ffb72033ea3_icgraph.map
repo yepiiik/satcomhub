@@ -1,0 +1,11 @@
+<map id="PythonModuleRunner::findBuiltInExcelFiles" name="PythonModuleRunner::findBuiltInExcelFiles">
+<area shape="rect" id="Node000001" title=" " alt="" coords="691,37,852,77"/>
+<area shape="rect" id="Node000002" href="$classPythonModuleRunner.html#a289d8de059185deeafcea7256d74d486" title=" " alt="" coords="474,5,642,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="677,46,642,41,643,35,677,41"/>
+<area shape="rect" id="Node000005" href="$classPythonModuleRunner.html#aaca76ede08d895f96423ca9c8dcdb8d0" title="Opens a native file dialog to select an Excel attenuation table (.xlsx / .csv)." alt="" coords="473,69,643,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="678,74,643,79,643,74,677,69"/>
+<area shape="rect" id="Node000003" href="$classPythonModuleRunner.html#ae77564a3a8eac940d006f5782a0a2cce" title=" " alt="" coords="264,5,425,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="460,28,426,28,426,23,460,23"/>
+<area shape="rect" id="Node000004" href="$classPythonModuleRunner.html#ae2344baee5ec9625cf59148e8c4848f7" title="Starts a Python correlation module asynchronously for a specific ground station." alt="" coords="5,5,216,45"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="250,28,216,28,216,23,250,23"/>
+</map>

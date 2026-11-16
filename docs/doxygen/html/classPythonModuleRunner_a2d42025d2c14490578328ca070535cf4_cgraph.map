@@ -1,0 +1,5 @@
+<map id="PythonModuleRunner::selectPythonModuleDialog" name="PythonModuleRunner::selectPythonModuleDialog">
+<area shape="rect" id="Node000001" title="Opens a native file dialog to select a Python module (.py)." alt="" coords="5,5,209,45"/>
+<area shape="rect" id="Node000002" href="$classPythonModuleRunner.html#ae45e27027a0b3dc2c3d155805a6f57f3" title=" " alt="" coords="257,5,419,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="209,23,244,23,244,28,209,28"/>
+</map>

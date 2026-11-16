@@ -1,0 +1,11 @@
+<map id="StationManager::updateHistorySessionSatellite" name="StationManager::updateHistorySessionSatellite">
+<area shape="rect" id="Node000001" title="Updates only the target satellite JSON inside a specific history session folder." alt="" coords="5,85,231,125"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#afc55e6a954d76409ec96df08f4b4a876" title=" " alt="" coords="279,5,525,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="164,82,278,41,316,31,317,36,279,46,166,87"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#ae1d03311069101c77d0a987c3225bb0b" title=" " alt="" coords="301,55,503,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="231,90,287,84,288,90,231,96"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a0e1cc369a4afbcd03cdf4c612756009c" title="Reads the full UTF&#45;8 text contents of filePath." alt="" coords="296,120,508,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="231,113,282,118,282,124,231,118"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="294,169,510,195"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="176,122,279,154,320,164,319,169,278,159,175,127"/>
+</map>

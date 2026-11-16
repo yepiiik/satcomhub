@@ -1,0 +1,7 @@
+<map id="StationManager::parseStationJson" name="StationManager::parseStationJson">
+<area shape="rect" id="Node000001" title="Parses a ground station JSON string (single object or array) into a structured QVariantMap." alt="" coords="268,45,511,70"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a86dfc8df93805a855d56adc5999a904e" title="Loads full details (session, satellite, stations, snrProfileData) for a single history session." alt="" coords="9,5,217,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="265,46,216,40,217,35,266,40"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a6cf296f6da2ce64349367d5e4b3bb3cf" title=" " alt="" coords="5,69,220,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="266,74,221,80,220,74,266,69"/>
+</map>

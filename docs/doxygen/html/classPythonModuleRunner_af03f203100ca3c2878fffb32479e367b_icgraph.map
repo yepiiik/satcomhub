@@ -1,0 +1,26 @@
+<map id="PythonModuleRunner::saveSettingsJson" name="PythonModuleRunner::saveSettingsJson">
+<area shape="rect" id="Node000001" title=" " alt="" coords="809,158,971,198"/>
+<area shape="rect" id="Node000002" href="$classPythonModuleRunner.html#a9c516dc79405000ca881bec129deaf69" title=" " alt="" coords="264,40,483,80"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="870,147,851,117,826,85,796,56,760,33,718,19,674,10,629,8,584,10,499,24,430,43,429,38,498,19,583,5,629,3,675,5,720,13,762,29,799,52,830,82,855,114,874,144"/>
+<area shape="rect" id="Node000004" href="$classPythonModuleRunner.html#ae77564a3a8eac940d006f5782a0a2cce" title=" " alt="" coords="293,104,454,144"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="805,157,761,148,680,138,598,132,454,127,454,122,598,127,680,133,762,143,806,152"/>
+<area shape="rect" id="Node000005" href="$classPythonModuleRunner.html#a11c1607f9935b10c88f06c819d58687a" title=" " alt="" coords="293,227,454,267"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="804,203,762,212,598,234,455,245,454,240,598,229,761,207,803,198"/>
+<area shape="rect" id="Node000007" href="$classPythonModuleRunner.html#a3da0275964ee153ac89715333b6288f4" title=" " alt="" coords="531,43,761,83"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="846,152,760,104,714,86,716,81,762,99,849,148"/>
+<area shape="rect" id="Node000008" href="$classPythonModuleRunner.html#a289d8de059185deeafcea7256d74d486" title=" " alt="" coords="562,158,730,198"/>
+<area shape="poly" id="edge9_Node000001_Node000008" title=" " alt="" coords="795,180,730,180,730,175,795,175"/>
+<area shape="rect" id="Node000009" href="$classPythonModuleRunner.html#ad04b89de8e63f2f2f4cf98f4dd0c9df8" title=" " alt="" coords="565,272,727,312"/>
+<area shape="poly" id="edge11_Node000001_Node000009" title=" " alt="" coords="849,208,762,256,716,275,714,270,760,251,846,203"/>
+<area shape="rect" id="Node000010" href="$classPythonModuleRunner.html#ae614f4a1a9fa8f959870181764bffff6" title=" " alt="" coords="287,316,460,356"/>
+<area shape="poly" id="edge14_Node000001_Node000010" title=" " alt="" coords="874,211,855,241,830,273,799,303,763,327,725,342,686,352,606,362,528,362,460,355,461,350,528,357,605,357,685,347,724,336,760,322,795,299,826,270,850,238,869,209"/>
+<area shape="rect" id="Node000003" href="$classPythonModuleRunner.html#ae2344baee5ec9625cf59148e8c4848f7" title="Starts a Python correlation module asynchronously for a specific ground station." alt="" coords="5,72,216,112"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="251,78,217,82,216,77,250,73"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="278,115,216,108,217,102,279,110"/>
+<area shape="rect" id="Node000006" href="$classPythonModuleRunner.html#af89ca93b48679a73f61b6764c225696e" title="Starts a Python factor module asynchronously in a separate OS process." alt="" coords="30,227,191,267"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="279,250,191,250,191,244,279,244"/>
+<area shape="poly" id="edge8_Node000007_Node000002" title=" " alt="" coords="517,64,483,64,483,59,517,59"/>
+<area shape="poly" id="edge10_Node000008_Node000004" title=" " alt="" coords="548,161,454,143,455,137,549,156"/>
+<area shape="poly" id="edge12_Node000009_Node000005" title=" " alt="" coords="551,279,454,263,455,258,552,274"/>
+<area shape="poly" id="edge13_Node000009_Node000010" title=" " alt="" coords="552,310,461,325,460,320,551,305"/>
+</map>

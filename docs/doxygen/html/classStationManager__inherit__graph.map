@@ -1,0 +1,5 @@
+<map id="StationManager" name="StationManager">
+<area shape="rect" id="Node000001" title="Central persistence, RF parameter calculation, and JSON serialization manager exposed to QML." alt="" coords="5,119,240,1364"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="89,5,156,71"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="125,84,125,118,120,118,120,84"/>
+</map>

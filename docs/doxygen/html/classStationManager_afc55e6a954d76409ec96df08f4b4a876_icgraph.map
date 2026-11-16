@@ -1,0 +1,19 @@
+<map id="StationManager::buildSatelliteJson" name="StationManager::buildSatelliteJson">
+<area shape="rect" id="Node000001" title=" " alt="" coords="575,123,821,149"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#a16c82bea7ae9496d1af50dfbe95c813a" title=" " alt="" coords="5,29,228,69"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="672,116,609,68,569,44,526,26,483,16,439,11,349,10,265,18,194,32,193,27,264,13,349,4,439,5,484,11,527,21,571,39,612,63,675,112"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#aaebff7a8d5b42a255245dcc9832437a6" title=" " alt="" coords="276,151,527,177"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="561,151,527,155,527,149,561,146"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#a43b8d9c0db7f020141b9a83859194bc8" title="Saves a complete planning session snapshot (metadata, satellite, stations, and optional SNR telemetry..." alt="" coords="296,87,507,127"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="561,125,507,120,507,114,561,120"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#a18b47eb51f8003dd891a4db2b493130c" title=" " alt="" coords="281,37,522,62"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="652,121,526,77,473,65,475,59,527,72,654,116"/>
+<area shape="rect" id="Node000007" href="$classStationManager.html#a3a84be2021fee9391fc1d2e912ed0233" title=" " alt="" coords="289,201,514,241"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="646,155,527,192,484,204,482,199,526,187,644,150"/>
+<area shape="rect" id="Node000008" href="$classStationManager.html#a255964c8a36279ce22630fb97420be2f" title="Updates only the target satellite JSON inside a specific history session folder." alt="" coords="289,265,514,305"/>
+<area shape="poly" id="edge9_Node000001_Node000008" title=" " alt="" coords="673,160,610,208,570,234,528,256,496,268,494,263,526,251,567,229,606,204,670,156"/>
+<area shape="poly" id="edge4_Node000003_Node000002" title=" " alt="" coords="305,151,275,141,204,107,146,72,148,67,206,103,277,136,307,145"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#a86dfc8df93805a855d56adc5999a904e" title="Loads full details (session, satellite, stations, snrProfileData) for a single history session." alt="" coords="13,144,221,184"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="263,167,221,167,221,161,263,161"/>
+<area shape="poly" id="edge7_Node000006_Node000002" title=" " alt="" coords="267,52,228,52,228,47,267,47"/>
+</map>

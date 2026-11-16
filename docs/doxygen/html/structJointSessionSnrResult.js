@@ -1,0 +1,25 @@
+var structJointSessionSnrResult =
+[
+    [ "toVariantMap", "structJointSessionSnrResult.html#a8aeddcb7de94877012e775d53ac5a79a", null ],
+    [ "carrierFreqMhz", "structJointSessionSnrResult.html#a8f9eb3f5069c9951ec4c662d3a6e4abe", null ],
+    [ "channelBandwidthKhz", "structJointSessionSnrResult.html#af6cfe6be73cb283e03e1232fd998e7ba", null ],
+    [ "combinedMrcSnrDb", "structJointSessionSnrResult.html#aef721020efc866c3cdfdd92dceb981cd", null ],
+    [ "combinedSelectionSnrDb", "structJointSessionSnrResult.html#af7624caf478e577289aa7467bb325b12", null ],
+    [ "durationSeconds", "structJointSessionSnrResult.html#ab3f9dc504affd1248a99b59f4beab7cc", null ],
+    [ "endUtc", "structJointSessionSnrResult.html#a6e7965219b5e569ee760184e38f856e5", null ],
+    [ "hasOverlap", "structJointSessionSnrResult.html#adc2b5e50ba30f63f5656fba5606f4496", null ],
+    [ "maxDiversityGainDb", "structJointSessionSnrResult.html#abb45197ca3ccda45d1f81d6b055fe065", null ],
+    [ "overlapDurationSeconds", "structJointSessionSnrResult.html#a9efaf0b562dabc968c0308d498f6af1e", null ],
+    [ "sampleCount", "structJointSessionSnrResult.html#a488e8c2005aa7e04edc9d979331b769b", null ],
+    [ "sampleRateHz", "structJointSessionSnrResult.html#a864ef8d21584dff329b5b92d9358e0a1", null ],
+    [ "satelliteName", "structJointSessionSnrResult.html#a96298fd3ff55b5c2ecf1a0c34968c241", null ],
+    [ "shannonRawThresholdDb", "structJointSessionSnrResult.html#a54337ba0846ca2758ced5dd202078bca", null ],
+    [ "shannonTurbocodeThresholdDb", "structJointSessionSnrResult.html#a471c6a71508f99e6429e0332a794dd2b", null ],
+    [ "startUtc", "structJointSessionSnrResult.html#ae2253f6a89b804cb1025dd2254c3b9e0", null ],
+    [ "stationSeries", "structJointSessionSnrResult.html#aa22641608db9bb9c7ccb71fd22b3b16a", null ],
+    [ "timestampsSec", "structJointSessionSnrResult.html#a08a8ef3faf5e2ebd49f0d0ef0e282419", null ],
+    [ "txAntennaGainDbi", "structJointSessionSnrResult.html#a8f576f0a281a106d7256af1cc1ba2079", null ],
+    [ "txPowerDbm", "structJointSessionSnrResult.html#a130e5752699cf08a0611e7190015dd24", null ],
+    [ "utcLabels", "structJointSessionSnrResult.html#ac3d336d0bb764111f50dc87fbf3debb3", null ],
+    [ "valid", "structJointSessionSnrResult.html#afd141176932fa54c3a67ed632ab31fb8", null ]
+];

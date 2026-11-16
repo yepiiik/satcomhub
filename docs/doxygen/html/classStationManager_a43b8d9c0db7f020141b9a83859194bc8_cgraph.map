@@ -1,0 +1,15 @@
+<map id="StationManager::saveHistorySession" name="StationManager::saveHistorySession">
+<area shape="rect" id="Node000001" title="Saves a complete planning session snapshot (metadata, satellite, stations, and optional SNR telemetry..." alt="" coords="5,77,216,117"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#afc55e6a954d76409ec96df08f4b4a876" title=" " alt="" coords="264,5,511,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="161,74,263,39,298,31,299,36,265,45,163,79"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a74ff732300d43d63d1d37b77e14d78ed" title="Generates a formatted JSON document string from a ground station QVariantMap." alt="" coords="268,55,507,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="216,83,254,79,255,84,217,88"/>
+<area shape="rect" id="Node000006" href="$classStationManager.html#ae1d03311069101c77d0a987c3225bb0b" title=" " alt="" coords="287,105,488,145"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="217,105,273,110,273,116,216,110"/>
+<area shape="rect" id="Node000007" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="279,169,495,195"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="158,114,265,154,302,164,301,169,263,159,156,119"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#aeba880c266ee2110001a5368809d56f3" title="Computes derived RF and noise parameters using Friis noise formula, dish size estimation,..." alt="" coords="559,47,800,87"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="507,65,545,65,545,70,507,70"/>
+<area shape="rect" id="Node000005" href="$classStationManager.html#a1b2dc4c3e150cd6c80d9c2ca2fd58402" title=" " alt="" coords="848,55,1113,80"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="800,65,834,65,834,70,800,70"/>
+</map>

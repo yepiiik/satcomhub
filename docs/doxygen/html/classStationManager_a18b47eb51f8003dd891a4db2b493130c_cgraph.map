@@ -1,0 +1,9 @@
+<map id="StationManager::saveSatelliteFile" name="StationManager::saveSatelliteFile">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,63,247,88"/>
+<area shape="rect" id="Node000002" href="$classStationManager.html#afc55e6a954d76409ec96df08f4b4a876" title=" " alt="" coords="295,5,541,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="191,60,339,31,340,36,192,65"/>
+<area shape="rect" id="Node000003" href="$classStationManager.html#a962c63fcce0e3f8eb2d200c04e4cd520" title=" " alt="" coords="311,55,525,95"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="247,73,297,73,297,78,247,78"/>
+<area shape="rect" id="Node000004" href="$classStationManager.html#ac2d81897a5ec6d539d14cf0096116748" title="Writes content as UTF&#45;8 text to filePath." alt="" coords="310,120,526,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="192,85,340,115,339,120,191,91"/>
+</map>

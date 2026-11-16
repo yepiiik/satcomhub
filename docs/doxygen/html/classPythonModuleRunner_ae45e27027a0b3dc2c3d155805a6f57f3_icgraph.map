@@ -1,0 +1,13 @@
+<map id="PythonModuleRunner::findBuiltInModules" name="PythonModuleRunner::findBuiltInModules">
+<area shape="rect" id="Node000001" title=" " alt="" coords="688,69,849,109"/>
+<area shape="rect" id="Node000002" href="$classPythonModuleRunner.html#ad04b89de8e63f2f2f4cf98f4dd0c9df8" title=" " alt="" coords="457,37,619,77"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="674,79,619,71,619,66,675,74"/>
+<area shape="rect" id="Node000006" href="$classPythonModuleRunner.html#a2d42025d2c14490578328ca070535cf4" title="Opens a native file dialog to select a Python module (.py)." alt="" coords="436,101,640,141"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="675,105,641,110,640,105,674,100"/>
+<area shape="rect" id="Node000003" href="$classPythonModuleRunner.html#a11c1607f9935b10c88f06c819d58687a" title=" " alt="" coords="221,5,382,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="443,47,382,39,383,34,443,42"/>
+<area shape="rect" id="Node000005" href="$classPythonModuleRunner.html#ae614f4a1a9fa8f959870181764bffff6" title=" " alt="" coords="215,69,388,109"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="443,73,389,80,388,75,443,67"/>
+<area shape="rect" id="Node000004" href="$classPythonModuleRunner.html#af89ca93b48679a73f61b6764c225696e" title="Starts a Python factor module asynchronously in a separate OS process." alt="" coords="5,5,167,45"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="207,28,167,28,167,23,207,23"/>
+</map>

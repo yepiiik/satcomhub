@@ -68,6 +68,8 @@ static QString formatRelativePassTime(const QDateTime &tUtc, const QDateTime &no
         return QString("Today %1 UTC").arg(tUtc.toString("HH:mm:ss"));
     } else if (tUtc.date() == nowUtc.date().addDays(1)) {
         return QString("Tomorrow %1 UTC").arg(tUtc.toString("HH:mm:ss"));
+    } else if (tUtc.date() == nowUtc.date().addDays(-1)) {
+        return QString("Yesterday %1 UTC").arg(tUtc.toString("HH:mm:ss"));
     } else {
         return tUtc.toString("yyyy-MM-dd HH:mm:ss 'UTC'");
     }
@@ -275,17 +277,133 @@ QString SatellitePropagator::currentUtcIsoString() const {
     return QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss 'UTC'");
 }
 
+static QDateTime parseFlexibleUtcDateTime(const QString &rawStr) {
+    QString s = rawStr.trimmed();
+    if (s.endsWith(" UTC", Qt::CaseInsensitive)) {
+        s = s.left(s.length() - 4).trimmed();
+    }
+    QDateTime dt = QDateTime::fromString(s, Qt::ISODate);
+    if (!dt.isValid()) dt = QDateTime::fromString(s, "yyyy-MM-dd HH:mm:ss");
+    if (!dt.isValid()) dt = QDateTime::fromString(s, "yyyy-MM-dd HH:mm");
+    if (!dt.isValid()) {
+        QDate d = QDate::fromString(s, "yyyy-MM-dd");
+        if (d.isValid()) dt = QDateTime(d, QTime(0, 0, 0), QTimeZone::UTC);
+    }
+    if (dt.isValid()) {
+        dt.setTimeZone(QTimeZone::UTC);
+    }
+    return dt;
+}
+
+QVariantList SatellitePropagator::computeSessionTrajectory(const QString &tleLine1,
+                                                           const QString &tleLine2,
+                                                           const QString &startUtcIso,
+                                                           const QString &endUtcIso,
+                                                           double stepSeconds) const {
+    QVariantList track;
+    QString name, l1, l2;
+    if (!extractTleLines(tleLine1, tleLine2, name, l1, l2)) {
+        return track;
+    }
+
+    QDateTime startDt = parseFlexibleUtcDateTime(startUtcIso);
+    QDateTime endDt = parseFlexibleUtcDateTime(endUtcIso);
+    if (!startDt.isValid() || !endDt.isValid() || endDt <= startDt) {
+        return track;
+    }
+
+    try {
+        libsgp4::Tle tle(name.toStdString(), l1.toStdString(), l2.toStdString());
+        libsgp4::SGP4 sgp4(tle);
+
+        qint64 totalSec = std::min<qint64>(7200, startDt.secsTo(endDt));
+        qint64 stepSec = static_cast<qint64>(std::clamp(stepSeconds, 2.0, 60.0));
+
+        for (qint64 sec = 0; sec <= totalSec; sec += stepSec) {
+            QDateTime curr = startDt.addSecs(sec);
+            libsgp4::DateTime dt = toSgp4DateTime(curr);
+            try {
+                libsgp4::Eci eci = sgp4.FindPosition(dt);
+                libsgp4::CoordGeodetic geo = eci.ToGeodetic();
+                QVariantMap pt;
+                pt["latitude"] = libsgp4::Util::RadiansToDegrees(geo.latitude);
+                pt["longitude"] = libsgp4::Util::RadiansToDegrees(geo.longitude);
+                pt["altitudeKm"] = geo.altitude;
+                track.append(pt);
+            } catch (...) {
+                continue;
+            }
+        }
+        // Ensure final endpoint at endDt is included
+        if (totalSec % stepSec != 0) {
+            libsgp4::DateTime dtEnd = toSgp4DateTime(endDt);
+            try {
+                libsgp4::Eci eci = sgp4.FindPosition(dtEnd);
+                libsgp4::CoordGeodetic geo = eci.ToGeodetic();
+                QVariantMap pt;
+                pt["latitude"] = libsgp4::Util::RadiansToDegrees(geo.latitude);
+                pt["longitude"] = libsgp4::Util::RadiansToDegrees(geo.longitude);
+                pt["altitudeKm"] = geo.altitude;
+                track.append(pt);
+            } catch (...) {}
+        }
+    } catch (...) {
+        return track;
+    }
+    return track;
+}
+
 QVariantMap SatellitePropagator::calculatePassWindows(const QString &tleLine1,
                                                       const QString &tleLine2,
                                                       const QVariantList &stations,
                                                       int forecastHours,
-                                                      double stepSeconds) {
+                                                      double stepSeconds,
+                                                      double startOffsetHours) {
+    QDateTime nowUtc = QDateTime::currentDateTimeUtc();
+    QDateTime windowStartUtc = nowUtc.addSecs(static_cast<qint64>(std::llround(startOffsetHours * 3600.0)));
+    int clampedHours = std::clamp(forecastHours, 1, 336);
+    QDateTime windowEndUtc = windowStartUtc.addSecs(static_cast<qint64>(clampedHours) * 3600);
+    QVariantMap res = computePassWindowsForInterval(tleLine1, tleLine2, stations, windowStartUtc, windowEndUtc, stepSeconds);
+    res["forecastHours"] = forecastHours;
+    return res;
+}
+
+QVariantMap SatellitePropagator::calculatePassWindowsInRange(const QString &tleLine1,
+                                                             const QString &tleLine2,
+                                                             const QVariantList &stations,
+                                                             const QString &startUtcIso,
+                                                             const QString &endUtcIso,
+                                                             double stepSeconds) {
+    QDateTime startDt = parseFlexibleUtcDateTime(startUtcIso);
+    QDateTime endDt = parseFlexibleUtcDateTime(endUtcIso);
+    if (!startDt.isValid() || !endDt.isValid() || endDt <= startDt) {
+        QVariantMap err;
+        err["valid"] = false;
+        err["passes"] = QVariantList();
+        err["totalPasses"] = 0;
+        err["multiStationPasses"] = 0;
+        err["error"] = "Invalid date/time range";
+        return err;
+    }
+    // Cap to 31 days max to keep UI responsive
+    if (startDt.secsTo(endDt) > 31LL * 86400LL) {
+        endDt = startDt.addDays(31);
+    }
+    return computePassWindowsForInterval(tleLine1, tleLine2, stations, startDt, endDt, stepSeconds);
+}
+
+QVariantMap SatellitePropagator::computePassWindowsForInterval(const QString &tleLine1,
+                                                               const QString &tleLine2,
+                                                               const QVariantList &stations,
+                                                               const QDateTime &windowStartUtc,
+                                                               const QDateTime &windowEndUtc,
+                                                               double stepSeconds) const {
     QVariantMap result;
     result["valid"] = false;
     result["passes"] = QVariantList();
     result["totalPasses"] = 0;
     result["multiStationPasses"] = 0;
-    result["forecastHours"] = forecastHours;
+    result["forecastHours"] = static_cast<int>(std::max<qint64>(1, windowStartUtc.secsTo(windowEndUtc) / 3600));
 
     QString name, l1, l2;
     if (!extractTleLines(tleLine1, tleLine2, name, l1, l2) || stations.isEmpty()) {
@@ -329,7 +447,7 @@ QVariantMap SatellitePropagator::calculatePassWindows(const QString &tleLine1,
         }
 
         QDateTime nowUtc = QDateTime::currentDateTimeUtc();
-        int totalSeconds = std::clamp(forecastHours, 1, 168) * 3600;
+        qint64 totalSeconds = std::max<qint64>(60, windowStartUtc.secsTo(windowEndUtc));
         int stepSec = static_cast<int>(std::clamp(stepSeconds, 5.0, 60.0));
 
         std::vector<SingleStationPass> allSinglePasses;
@@ -363,11 +481,11 @@ QVariantMap SatellitePropagator::calculatePassWindows(const QString &tleLine1,
             double tcaAzRad = 0.0;
             double tcaRangeKm = 0.0;
 
-            QDateTime prevTime = nowUtc;
+            QDateTime prevTime = windowStartUtc;
             double prevElRad = -100.0;
 
-            for (int sec = 0; sec <= totalSeconds; sec += stepSec) {
-                QDateTime currTime = nowUtc.addSecs(sec);
+            for (qint64 sec = 0; sec <= totalSeconds; sec += stepSec) {
+                QDateTime currTime = windowStartUtc.addSecs(sec);
                 libsgp4::DateTime dt = toSgp4DateTime(currTime);
 
                 double elRad = 0.0;
