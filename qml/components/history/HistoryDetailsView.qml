@@ -877,18 +877,46 @@ Rectangle {
 
                     Rectangle {
                         id: stationCard
-                        width: 380
-                        implicitHeight: stCol.implicitHeight + 24
+                        readonly property string stId: modelData.stationId || ("GS-" + (index + 1))
+                        readonly property string stName: modelData.name || ("Station " + (index + 1))
+                        readonly property color stColor: historyDetailsRoot.getStationColor(stId || stName, index)
+                        readonly property var stSnrEntry: {
+                            var snr = (historyDetailsRoot.sessionDetails && historyDetailsRoot.sessionDetails.snrProfileData)
+                                      ? historyDetailsRoot.sessionDetails.snrProfileData : null
+                            var arr = snr ? (snr.stations || snr.stationCurves || []) : []
+                            for (var s = 0; s < arr.length; s++) {
+                                var candidate = arr[s]
+                                if (candidate.stationId === stId || candidate.stationName === stName) {
+                                    return candidate
+                                }
+                            }
+                            if (index < arr.length) {
+                                return arr[index]
+                            }
+                            return null
+                        }
+
+                        width: Math.max(430, Math.floor((mainContentCol.width - 14) / 2))
+                        implicitHeight: Math.max(stMainRow.implicitHeight + 28, 210)
                         radius: 10
                         color: historyDetailsRoot.lightMode ? "#ffffff" : "#141720"
                         border.color: historyDetailsRoot.lightMode ? "#dee2e6" : "#222736"
                         border.width: 1
 
-                        ColumnLayout {
-                            id: stCol
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 8
+                        RowLayout {
+                            id: stMainRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 14
+                            spacing: 14
+
+                            // LEFT COLUMN: Station Header, Config Pills, Coordinates
+                            ColumnLayout {
+                                id: stCol
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignTop
+                                spacing: 8
 
                             // Header
                             RowLayout {
@@ -1041,13 +1069,190 @@ Rectangle {
                                 }
                             }
                         }
+
+                        // RIGHT COLUMN: Polar Skyplot (Az/El) + AOS->LOS Window
+                        ColumnLayout {
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 6
+
+                            Rectangle {
+                                Layout.preferredWidth: 148
+                                Layout.preferredHeight: 148
+                                Layout.minimumWidth: 148
+                                Layout.minimumHeight: 148
+                                Layout.alignment: Qt.AlignHCenter
+                                radius: 8
+                                color: historyDetailsRoot.lightMode ? "#f8f9fa" : "#0d1017"
+                                border.color: historyDetailsRoot.lightMode ? "#dee2e6" : "#222736"
+                                border.width: 1
+
+                                Canvas {
+                                    id: histStationPolarCanvas
+                                    anchors.fill: parent
+                                    antialiasing: true
+
+                                    property var stSnr: stationCard.stSnrEntry
+                                    property color passColor: stationCard.stColor
+                                    property int hoverIdx: historyDetailsRoot.hoveredSampleIndex
+
+                                    onStSnrChanged: requestPaint()
+                                    onHoverIdxChanged: requestPaint()
+                                    onAvailableChanged: { if (available) requestPaint() }
+                                    onWidthChanged: requestPaint()
+                                    onHeightChanged: requestPaint()
+
+                                    Connections {
+                                        target: historyDetailsRoot
+                                        function onSessionDetailsChanged() { histStationPolarCanvas.requestPaint() }
+                                        function onLightModeChanged() { histStationPolarCanvas.requestPaint() }
+                                        function onVisibleChanged() {
+                                            if (historyDetailsRoot.visible) histStationPolarCanvas.requestPaint()
+                                        }
+                                    }
+
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        var w = width
+                                        var h = height
+                                        ctx.clearRect(0, 0, w, h)
+
+                                        var cx = w / 2
+                                        var cy = h / 2 + 5
+                                        var maxR = 52
+
+                                        var isHoverValid = (hoverIdx >= 0 && stSnr && stSnr.isVisible && hoverIdx < stSnr.isVisible.length && stSnr.isVisible[hoverIdx])
+
+                                        // Title
+                                        ctx.fillStyle = isHoverValid ? "#ffd43b" : (historyDetailsRoot.lightMode ? "#495057" : "#adb5bd")
+                                        ctx.font = isHoverValid ? "bold 8px monospace" : "bold 8.5px sans-serif"
+                                        ctx.textAlign = "center"
+                                        if (isHoverValid) {
+                                            var curAz = Math.round(Number(stSnr.azimuthDeg[hoverIdx]) || 0)
+                                            var curEl = Math.round(Number(stSnr.elevationDeg[hoverIdx]) || 0)
+                                            ctx.fillText("Az " + curAz + "°  El " + curEl + "°", cx, 11)
+                                        } else {
+                                            ctx.fillText("Polar Skyplot (Az/El)", cx, 11)
+                                        }
+
+                                        // Concentric elevation circles: 0°, 30°, 60°
+                                        ctx.strokeStyle = historyDetailsRoot.lightMode ? "#dee2e6" : "#1e2638"
+                                        ctx.lineWidth = 1
+                                        var rings = [1.0, 2.0 / 3.0, 1.0 / 3.0]
+                                        for (var rIdx = 0; rIdx < rings.length; rIdx++) {
+                                            ctx.beginPath()
+                                            ctx.arc(cx, cy, maxR * rings[rIdx], 0, 2 * Math.PI)
+                                            ctx.stroke()
+                                        }
+
+                                        // Elevation labels
+                                        ctx.fillStyle = historyDetailsRoot.lightMode ? "#adb5bd" : "#495057"
+                                        ctx.font = "6.5px sans-serif"
+                                        ctx.textAlign = "left"
+                                        ctx.fillText("30°", cx + 2, cy - maxR * (2.0 / 3.0) + 6)
+                                        ctx.fillText("60°", cx + 2, cy - maxR * (1.0 / 3.0) + 6)
+
+                                        // Crosshair spokes (N-S, E-W)
+                                        ctx.beginPath()
+                                        ctx.moveTo(cx - maxR, cy); ctx.lineTo(cx + maxR, cy)
+                                        ctx.moveTo(cx, cy - maxR); ctx.lineTo(cx, cy + maxR)
+                                        ctx.stroke()
+
+                                        // Compass labels
+                                        ctx.fillStyle = historyDetailsRoot.lightMode ? "#6c757d" : "#868e96"
+                                        ctx.font = "bold 8px monospace"
+                                        ctx.textAlign = "center"
+                                        ctx.textBaseline = "middle"
+                                        ctx.fillText("N", cx, cy - maxR - 6)
+                                        ctx.fillText("S", cx, cy + maxR + 7)
+                                        ctx.fillText("E", cx + maxR + 6, cy)
+                                        ctx.fillText("W", cx - maxR - 6, cy)
+                                        ctx.textBaseline = "alphabetic"
+
+                                        // Satellite pass trajectory if azimuthDeg & elevationDeg are available
+                                        if (stSnr && stSnr.elevationDeg && stSnr.azimuthDeg && stSnr.isVisible) {
+                                            var nPts = stSnr.elevationDeg.length
+                                            ctx.beginPath()
+                                            ctx.strokeStyle = passColor
+                                            ctx.lineWidth = 2.0
+                                            var started = false
+                                            var prevVis = false
+                                            var firstX = 0, firstY = 0, lastX = 0, lastY = 0
+
+                                            for (var i = 0; i < nPts; i++) {
+                                                if (!stSnr.isVisible[i]) {
+                                                    prevVis = false
+                                                    continue
+                                                }
+                                                var el = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[i]) || 0.0))
+                                                var azDeg = ((Number(stSnr.azimuthDeg[i]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                var azRad = (azDeg - 90.0) * (Math.PI / 180.0)
+                                                var r = maxR * (1.0 - el / 90.0)
+                                                var px = cx + r * Math.cos(azRad)
+                                                var py = cy + r * Math.sin(azRad)
+
+                                                if (!started || !prevVis) {
+                                                    ctx.moveTo(px, py)
+                                                    if (!started) {
+                                                        firstX = px; firstY = py
+                                                        started = true
+                                                    }
+                                                } else {
+                                                    ctx.lineTo(px, py)
+                                                }
+                                                lastX = px; lastY = py
+                                                prevVis = true
+                                            }
+                                            if (started) {
+                                                ctx.stroke()
+
+                                                // AOS (Green) & LOS (Red) dots
+                                                ctx.fillStyle = "#51cf66"
+                                                ctx.beginPath(); ctx.arc(firstX, firstY, 3.2, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.strokeStyle = "#ffffff"
+                                                ctx.lineWidth = 0.8
+                                                ctx.stroke()
+
+                                                ctx.fillStyle = "#ff6b6b"
+                                                ctx.beginPath(); ctx.arc(lastX, lastY, 3.2, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.stroke()
+                                            }
+
+                                            if (isHoverValid && hoverIdx < nPts) {
+                                                var hEl = Math.max(0.0, Math.min(90.0, Number(stSnr.elevationDeg[hoverIdx]) || 0.0))
+                                                var hAzDeg = ((Number(stSnr.azimuthDeg[hoverIdx]) || 0.0) % 360.0 + 360.0) % 360.0
+                                                var hAzRad = (hAzDeg - 90.0) * (Math.PI / 180.0)
+                                                var hR = maxR * (1.0 - hEl / 90.0)
+                                                var hx = cx + hR * Math.cos(hAzRad)
+                                                var hy = cy + hR * Math.sin(hAzRad)
+                                                ctx.fillStyle = "#ffd43b"
+                                                ctx.beginPath(); ctx.arc(hx, hy, 4.2, 0, 2 * Math.PI); ctx.fill()
+                                                ctx.strokeStyle = "#ffffff"
+                                                ctx.lineWidth = 1.0
+                                                ctx.stroke()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: (stationCard.stSnrEntry && stationCard.stSnrEntry.aosUtc && stationCard.stSnrEntry.losUtc)
+                                      ? (stationCard.stSnrEntry.aosUtc + " → " + stationCard.stSnrEntry.losUtc)
+                                      : "-- → --"
+                                font.pixelSize: 10
+                                font.family: "monospace"
+                                color: historyDetailsRoot.lightMode ? "#495057" : "#adb5bd"
+                            }
+                        }
+                        }
                     }
                 }
 
                 // Add Station Section (attached card when stations exist)
                 Rectangle {
                     visible: historyDetailsRoot.sessionDetails && historyDetailsRoot.sessionDetails.hasStations
-                    width: 320
+                    width: Math.max(430, Math.floor((mainContentCol.width - 14) / 2))
                     implicitHeight: 120
                     radius: 10
                     color: historyDetailsRoot.lightMode ? "#f8f9fa" : "#151822"
